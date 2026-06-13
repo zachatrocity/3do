@@ -9,13 +9,18 @@ RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/3do ./cmd/3do
 
 FROM alpine:3.22
 
-RUN addgroup -S app && adduser -S app -G app
+RUN apk add --no-cache su-exec \
+	&& addgroup -S -g 1000 app \
+	&& adduser -S -D -H -u 1000 -G app app
 WORKDIR /app
 COPY --from=build /out/3do /app/3do
 COPY web /app/web
-RUN mkdir -p /data && chown -R app:app /data /app
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
+	&& mkdir -p /data \
+	&& chown -R app:app /data
 
-USER app
-ENV ADDR=:8080 DATA_DIR=/data
+ENV ADDR=:8080 DATA_DIR=/data PUID=1000 PGID=1000
 EXPOSE 8080
-ENTRYPOINT ["/app/3do"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["/app/3do"]
