@@ -38,6 +38,7 @@ func TestEnsureDirsCreatesDatabaseParent(t *testing.T) {
 	cfg := Config{
 		DataDir:      filepath.Join(root, "data"),
 		UploadDir:    filepath.Join(root, "data", "uploads"),
+		ThumbnailDir: filepath.Join(root, "data", "thumbnails"),
 		DatabasePath: filepath.Join(root, "data", "db", "3do.db"),
 	}
 
@@ -46,6 +47,9 @@ func TestEnsureDirsCreatesDatabaseParent(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "data", "uploads")); err != nil {
 		t.Fatalf("expected uploads directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "data", "thumbnails")); err != nil {
+		t.Fatalf("expected thumbnails directory: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "data", "db")); err != nil {
 		t.Fatalf("expected database parent directory: %v", err)

@@ -17,6 +17,7 @@ type Config struct {
 	DataDir       string
 	DatabasePath  string
 	UploadDir     string
+	ThumbnailDir  string
 	UploadMaxSize int64
 	SessionSecret string
 }
@@ -32,6 +33,7 @@ func Load() Config {
 		DataDir:       dataDir,
 		DatabasePath:  env("DATABASE_PATH", filepath.Join(dataDir, "3do.db")),
 		UploadDir:     filepath.Join(dataDir, "uploads"),
+		ThumbnailDir:  filepath.Join(dataDir, "thumbnails"),
 		UploadMaxSize: int64(uploadMaxMB) * 1024 * 1024,
 		SessionSecret: strings.TrimSpace(os.Getenv("SESSION_SECRET")),
 	}
@@ -67,7 +69,7 @@ func (c Config) ValidateForServe() error {
 }
 
 func (c Config) EnsureDirs() error {
-	for _, dir := range uniqueDirs(c.DataDir, c.UploadDir, filepath.Dir(c.DatabasePath)) {
+	for _, dir := range uniqueDirs(c.DataDir, c.UploadDir, c.ThumbnailDir, filepath.Dir(c.DatabasePath)) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
@@ -77,10 +79,14 @@ func (c Config) EnsureDirs() error {
 
 func (c Config) CheckWritable() error {
 	for name, dir := range map[string]string{
-		"data directory":     c.DataDir,
-		"upload directory":   c.UploadDir,
-		"database directory": filepath.Dir(c.DatabasePath),
+		"data directory":      c.DataDir,
+		"upload directory":    c.UploadDir,
+		"thumbnail directory": c.ThumbnailDir,
+		"database directory":  filepath.Dir(c.DatabasePath),
 	} {
+		if dir == "" || dir == "." {
+			continue
+		}
 		if err := checkDirWritable(dir); err != nil {
 			return fmt.Errorf("%s %q is not writable: %w", name, dir, err)
 		}

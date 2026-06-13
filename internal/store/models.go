@@ -134,12 +134,30 @@ type StatusEvent struct {
 }
 
 type ItemLink struct {
-	ID          int64     `json:"id"`
-	QueueItemID int64     `json:"queue_item_id"`
-	URL         string    `json:"url"`
-	SourceType  string    `json:"source_type"`
-	Title       string    `json:"title"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID                   int64      `json:"id"`
+	QueueItemID          int64      `json:"queue_item_id"`
+	URL                  string     `json:"url"`
+	SourceType           string     `json:"source_type"`
+	Title                string     `json:"title"`
+	PreviewImageURL      string     `json:"preview_image_url,omitempty"`
+	PreviewImageSource   string     `json:"preview_image_source,omitempty"`
+	ThumbnailPath        string     `json:"-"`
+	ThumbnailContentType string     `json:"thumbnail_content_type,omitempty"`
+	ThumbnailStatus      string     `json:"thumbnail_status,omitempty"`
+	ThumbnailCheckedAt   *time.Time `json:"thumbnail_checked_at,omitempty"`
+	ThumbnailError       string     `json:"thumbnail_error,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+}
+
+type LinkThumbnailUpdate struct {
+	Title                string
+	PreviewImageURL      string
+	PreviewImageSource   string
+	ThumbnailPath        string
+	ThumbnailContentType string
+	ThumbnailStatus      string
+	ThumbnailError       string
+	CheckedAt            time.Time
 }
 
 type ItemFile struct {
