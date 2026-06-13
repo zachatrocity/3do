@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestLoadUsesPort(t *testing.T) {
 	t.Setenv("PORT", "9090")
@@ -26,6 +30,28 @@ func TestLoadFallsBackToAddrForCompatibility(t *testing.T) {
 		if cfg.ListenAddr != ":8081" {
 			t.Fatalf("expected listen addr :8081 for addr %q, got %q", addr, cfg.ListenAddr)
 		}
+	}
+}
+
+func TestEnsureDirsCreatesDatabaseParent(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{
+		DataDir:      filepath.Join(root, "data"),
+		UploadDir:    filepath.Join(root, "data", "uploads"),
+		DatabasePath: filepath.Join(root, "data", "db", "3do.db"),
+	}
+
+	if err := cfg.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "data", "uploads")); err != nil {
+		t.Fatalf("expected uploads directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "data", "db")); err != nil {
+		t.Fatalf("expected database parent directory: %v", err)
+	}
+	if err := cfg.CheckWritable(); err != nil {
+		t.Fatalf("expected prepared directories to be writable: %v", err)
 	}
 }
 

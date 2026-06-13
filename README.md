@@ -94,11 +94,12 @@ Durable data lives in `./data` when using the included Compose file:
 - `./data/3do.db` - SQLite database
 - `./data/uploads/` - uploaded STL/3MF/G-code/source files
 
-The container starts as root only long enough to create and chown `DATA_DIR`,
-then runs the long-lived 3do process as `PUID:PGID` through `su-exec`. The
-default `PUID=1000` and `PGID=1000` match the first regular user on many Linux
-hosts. If your self-hosting user has a different UID or GID, set those values in
-`.env` before first startup:
+The container starts as root long enough to create `DATA_DIR`, `uploads/`, and
+the parent directory for `DATABASE_PATH`, then it tries to chown them and run the
+long-lived 3do process as `PUID:PGID` through `su-exec`. The default `PUID=1000`
+and `PGID=1000` match the first regular user on many Linux hosts. If your
+self-hosting user has a different UID or GID, set those values in `.env` before
+first startup:
 
 ```sh
 id -u
@@ -108,6 +109,15 @@ id -g
 Files in `./data` should be owned by that configured UID/GID. Do not use
 `chmod 777` as the normal deployment fix; the entrypoint is responsible for
 preparing the mounted volume.
+
+The app also creates these directories during normal startup, which keeps native
+development and Docker behavior aligned. The entrypoint exists only to handle
+container bind-mount ownership before the app drops privileges. On startup, 3do
+verifies that the final runtime user can create files in `DATA_DIR`, `uploads/`,
+and the database directory before it opens SQLite. If that write check fails,
+startup stops with a clear permission error instead of a vague SQLite open
+failure. Set `PUID` and `PGID` to a user that can write the mounted host
+directory.
 
 Back up the entire `./data` directory. The database stores upload metadata and
 SHA-256 checksums, while the files themselves live under `./data/uploads`; keep
