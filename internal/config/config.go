@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,7 +10,8 @@ import (
 )
 
 type Config struct {
-	Addr          string
+	Port          string
+	ListenAddr    string
 	AppURL        string
 	DataDir       string
 	DatabasePath  string
@@ -21,8 +23,10 @@ type Config struct {
 func Load() Config {
 	dataDir := env("DATA_DIR", "./data")
 	uploadMaxMB := envInt("UPLOAD_MAX_MB", 512)
+	port := listenPort()
 	return Config{
-		Addr:          env("ADDR", ":8080"),
+		Port:          port,
+		ListenAddr:    ":" + port,
 		AppURL:        env("APP_URL", "http://localhost:8080"),
 		DataDir:       dataDir,
 		DatabasePath:  env("DATABASE_PATH", filepath.Join(dataDir, "3do.db")),
@@ -30,6 +34,22 @@ func Load() Config {
 		UploadMaxSize: int64(uploadMaxMB) * 1024 * 1024,
 		SessionSecret: strings.TrimSpace(os.Getenv("SESSION_SECRET")),
 	}
+}
+
+func listenPort() string {
+	port := strings.TrimSpace(os.Getenv("PORT"))
+	if port != "" {
+		return strings.TrimPrefix(port, ":")
+	}
+
+	addr := strings.TrimSpace(os.Getenv("ADDR"))
+	if addr == "" {
+		return "8080"
+	}
+	if _, addrPort, err := net.SplitHostPort(addr); err == nil {
+		return addrPort
+	}
+	return strings.TrimPrefix(addr, ":")
 }
 
 func (c Config) ValidateForServe() error {

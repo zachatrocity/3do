@@ -1,4 +1,4 @@
-.PHONY: dev build test fmt docker-build
+.PHONY: dev build test fmt docker-build docker-smoke
 
 dev:
 	SESSION_SECRET=$${SESSION_SECRET:-local-development-session-secret-do-not-use-in-production} go run ./cmd/3do
@@ -15,3 +15,6 @@ fmt:
 
 docker-build:
 	docker build -t 3do:local .
+
+docker-smoke:
+	sh scripts/docker-smoke.sh

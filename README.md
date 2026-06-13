@@ -48,7 +48,7 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
   -e APP_URL=http://localhost:8080 \
-  -e ADDR=:8080 \
+  -e PORT=8080 \
   -e DATA_DIR=/data \
   -e DATABASE_PATH=/data/3do.db \
   -e UPLOAD_MAX_MB=512 \
@@ -68,8 +68,10 @@ services:
       - "8080:8080"
     environment:
       APP_URL: http://localhost:8080
-      ADDR: :8080
+      PORT: "8080"
       DATA_DIR: /data
+      PUID: "1000"
+      PGID: "1000"
       DATABASE_PATH: /data/3do.db
       UPLOAD_MAX_MB: "512"
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET to at least 32 characters}
@@ -91,6 +93,21 @@ Durable data lives in `./data` when using the included Compose file:
 
 - `./data/3do.db` - SQLite database
 - `./data/uploads/` - uploaded STL/3MF/G-code/source files
+
+The container starts as root only long enough to create and chown `DATA_DIR`,
+then runs the long-lived 3do process as `PUID:PGID` through `su-exec`. The
+default `PUID=1000` and `PGID=1000` match the first regular user on many Linux
+hosts. If your self-hosting user has a different UID or GID, set those values in
+`.env` before first startup:
+
+```sh
+id -u
+id -g
+```
+
+Files in `./data` should be owned by that configured UID/GID. Do not use
+`chmod 777` as the normal deployment fix; the entrypoint is responsible for
+preparing the mounted volume.
 
 Back up the entire `./data` directory. The database stores upload metadata and
 SHA-256 checksums, while the files themselves live under `./data/uploads`; keep
@@ -116,6 +133,7 @@ queue with broken file references or orphaned files.
 make dev
 make test
 make build
+make docker-smoke
 ```
 
 The app defaults to `./data` locally, so local development does not require
@@ -126,9 +144,11 @@ unset; set your own value when testing production-like config.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ADDR` | `:8080` | HTTP listen address |
+| `PORT` | `8080` | HTTP listen port |
 | `APP_URL` | `http://localhost:8080` | Public URL for links and reverse proxy setups |
 | `DATA_DIR` | `./data` | Durable data root |
+| `PUID` | `1000` | Container runtime UID for files under `DATA_DIR` |
+| `PGID` | `1000` | Container runtime GID for files under `DATA_DIR` |
 | `DATABASE_PATH` | `${DATA_DIR}/3do.db` | SQLite database path |
 | `UPLOAD_MAX_MB` | `512` | Max upload request size |
 | `SESSION_SECRET` | unset | Required secret for session token hashing; must be at least 32 characters |

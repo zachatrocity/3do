@@ -7,6 +7,10 @@ services:
       - "8080:8080"
     env_file:
       - .env
+    environment:
+      PORT: ${PORT:-8080}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
     volumes:
       - ./data:/data
     healthcheck:
