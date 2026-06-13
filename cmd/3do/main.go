@@ -39,6 +39,10 @@ func main() {
 		slog.Error("failed to prepare data directories", "err", err)
 		os.Exit(1)
 	}
+	if err := cfg.CheckWritable(); err != nil {
+		slog.Error("data path is not writable", "err", err)
+		os.Exit(1)
+	}
 
 	db, err := store.Open(cfg.DatabasePath)
 	if err != nil {

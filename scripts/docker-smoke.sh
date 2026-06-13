@@ -27,7 +27,7 @@ docker run -d \
 	-e DATA_DIR=/data \
 	-e PUID="$host_uid" \
 	-e PGID="$host_gid" \
-	-e DATABASE_PATH=/data/3do.db \
+	-e DATABASE_PATH=/data/db/3do.db \
 	-e SESSION_SECRET=local-smoke-test-session-secret-32-chars-minimum \
 	-v "${data_dir}:/data" \
 	"$image" >/dev/null
@@ -37,10 +37,11 @@ if ! curl --retry 30 --retry-all-errors --retry-delay 1 -fsS "http://127.0.0.1:$
 	exit 1
 fi
 
-if [ ! -f "${data_dir}/3do.db" ]; then
+if [ ! -f "${data_dir}/db/3do.db" ]; then
 	ls -la "$data_dir" || true
+	ls -la "${data_dir}/db" || true
 	docker logs "$container" || true
-	echo "expected SQLite database at ${data_dir}/3do.db" >&2
+	echo "expected SQLite database at ${data_dir}/db/3do.db" >&2
 	exit 1
 fi
 

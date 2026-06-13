@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -66,10 +67,51 @@ func (c Config) ValidateForServe() error {
 }
 
 func (c Config) EnsureDirs() error {
-	if err := os.MkdirAll(c.DataDir, 0o755); err != nil {
+	for _, dir := range uniqueDirs(c.DataDir, c.UploadDir, filepath.Dir(c.DatabasePath)) {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c Config) CheckWritable() error {
+	for name, dir := range map[string]string{
+		"data directory":     c.DataDir,
+		"upload directory":   c.UploadDir,
+		"database directory": filepath.Dir(c.DatabasePath),
+	} {
+		if err := checkDirWritable(dir); err != nil {
+			return fmt.Errorf("%s %q is not writable: %w", name, dir, err)
+		}
+	}
+	return nil
+}
+
+func uniqueDirs(dirs ...string) []string {
+	seen := make(map[string]bool, len(dirs))
+	var unique []string
+	for _, dir := range dirs {
+		if dir == "" || dir == "." || seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		unique = append(unique, dir)
+	}
+	return unique
+}
+
+func checkDirWritable(dir string) error {
+	file, err := os.CreateTemp(dir, ".3do-write-test-*")
+	if err != nil {
 		return err
 	}
-	return os.MkdirAll(c.UploadDir, 0o755)
+	name := file.Name()
+	if err := file.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return os.Remove(name)
 }
 
 func env(key, fallback string) string {
