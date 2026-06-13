@@ -2,6 +2,40 @@ package store
 
 import "time"
 
+type UserRole string
+
+const (
+	RoleAdmin  UserRole = "admin"
+	RoleMember UserRole = "member"
+)
+
+type User struct {
+	ID           int64     `json:"id"`
+	DisplayName  string    `json:"display_name"`
+	Email        string    `json:"email"`
+	Role         UserRole  `json:"role"`
+	Active       bool      `json:"active"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	PasswordHash string    `json:"-"`
+}
+
+type UserInput struct {
+	DisplayName  string
+	Email        string
+	Role         UserRole
+	Active       bool
+	PasswordHash string
+}
+
+type UserUpdate struct {
+	DisplayName  string
+	Email        string
+	Role         UserRole
+	Active       bool
+	PasswordHash string
+}
+
 type QueueStatus string
 
 const (

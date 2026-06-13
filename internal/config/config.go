@@ -1,9 +1,11 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -13,6 +15,7 @@ type Config struct {
 	DatabasePath  string
 	UploadDir     string
 	UploadMaxSize int64
+	SessionSecret string
 }
 
 func Load() Config {
@@ -25,7 +28,21 @@ func Load() Config {
 		DatabasePath:  env("DATABASE_PATH", filepath.Join(dataDir, "3do.db")),
 		UploadDir:     filepath.Join(dataDir, "uploads"),
 		UploadMaxSize: int64(uploadMaxMB) * 1024 * 1024,
+		SessionSecret: strings.TrimSpace(os.Getenv("SESSION_SECRET")),
 	}
+}
+
+func (c Config) ValidateForServe() error {
+	if c.SessionSecret == "" {
+		return errors.New("SESSION_SECRET is required before starting 3do")
+	}
+	if c.SessionSecret == "change-me" {
+		return errors.New("SESSION_SECRET must not use the .env.example placeholder")
+	}
+	if len(c.SessionSecret) < 32 {
+		return errors.New("SESSION_SECRET must be at least 32 characters")
+	}
+	return nil
 }
 
 func (c Config) EnsureDirs() error {

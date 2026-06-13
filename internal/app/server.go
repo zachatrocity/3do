@@ -15,8 +15,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zachatrocity/3do/internal/auth"
 	"github.com/zachatrocity/3do/internal/config"
 	"github.com/zachatrocity/3do/internal/store"
+)
+
+const (
+	sessionCookieName = "3do_session"
+	sessionTTL        = 14 * 24 * time.Hour
 )
 
 type Server struct {
@@ -33,14 +39,236 @@ func NewServer(cfg config.Config, db *store.Store) http.Handler {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.health)
-	s.mux.HandleFunc("GET /api/queue-items", s.listQueueItems)
-	s.mux.HandleFunc("POST /api/queue-items", s.createQueueItem)
-	s.mux.HandleFunc("GET /api/printers", s.listPrinters)
-	s.mux.HandleFunc("POST /api/printers", s.createPrinter)
+	s.mux.HandleFunc("GET /api/bootstrap", s.bootstrapStatus)
+	s.mux.HandleFunc("POST /api/bootstrap/admin", s.bootstrapAdmin)
+	s.mux.HandleFunc("GET /api/session", s.session)
+	s.mux.HandleFunc("POST /api/login", s.login)
+	s.mux.HandleFunc("POST /api/logout", s.logout)
+	s.mux.HandleFunc("GET /api/users", s.requireAuth(s.listUsers, true))
+	s.mux.HandleFunc("POST /api/users", s.requireAuth(s.createUser, true))
+	s.mux.HandleFunc("PATCH /api/users/{id}", s.requireAuth(s.updateUser, true))
+	s.mux.HandleFunc("DELETE /api/users/{id}", s.requireAuth(s.deleteUser, true))
+	s.mux.HandleFunc("GET /api/queue-items", s.requireAuth(s.listQueueItems, false))
+	s.mux.HandleFunc("POST /api/queue-items", s.requireAuth(s.createQueueItem, false))
+	s.mux.HandleFunc("GET /api/printers", s.requireAuth(s.listPrinters, false))
+	s.mux.HandleFunc("POST /api/printers", s.requireAuth(s.createPrinter, false))
 	s.mux.Handle("/", http.FileServer(http.Dir("web")))
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) bootstrapStatus(w http.ResponseWriter, r *http.Request) {
+	count, err := s.store.UserCount(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"required": count == 0})
+}
+
+func (s *Server) bootstrapAdmin(w http.ResponseWriter, r *http.Request) {
+	var input userPayload
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	passwordHash, err := auth.HashPassword(input.Password)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	user, err := s.store.BootstrapAdmin(r.Context(), store.UserInput{
+		DisplayName:  input.DisplayName,
+		Email:        input.Email,
+		PasswordHash: passwordHash,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.startSession(w, r, user); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, user)
+}
+
+func (s *Server) session(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.userFromRequest(r)
+	if !ok {
+		count, err := s.store.UserCount(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error":              "authentication required",
+			"bootstrap_required": count == 0,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]store.User{"user": user})
+}
+
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	var input loginPayload
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	user, err := s.store.GetUserByEmail(r.Context(), input.Email)
+	if err != nil || !user.Active || !auth.CheckPassword(user.PasswordHash, input.Password) {
+		writeError(w, http.StatusUnauthorized, errors.New("invalid email or password"))
+		return
+	}
+	if err := s.startSession(w, r, user); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) requireAuth(next http.HandlerFunc, adminOnly bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := s.userFromRequest(r)
+		if !ok {
+			writeError(w, http.StatusUnauthorized, errors.New("authentication required"))
+			return
+		}
+		if adminOnly && user.Role != store.RoleAdmin {
+			writeError(w, http.StatusForbidden, errors.New("admin role required"))
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) userFromRequest(r *http.Request) (store.User, bool) {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil || cookie.Value == "" {
+		return store.User{}, false
+	}
+	user, err := s.store.SessionUser(r.Context(), auth.SessionTokenHash(s.cfg.SessionSecret, cookie.Value), time.Now())
+	if err != nil {
+		return store.User{}, false
+	}
+	return user, true
+}
+
+func (s *Server) startSession(w http.ResponseWriter, r *http.Request, user store.User) error {
+	token, err := auth.NewSessionToken()
+	if err != nil {
+		return err
+	}
+	expiresAt := time.Now().Add(sessionTTL)
+	if err := s.store.CreateSession(r.Context(), auth.SessionTokenHash(s.cfg.SessionSecret, token), user.ID, expiresAt); err != nil {
+		return err
+	}
+	_ = s.store.PruneExpiredSessions(r.Context(), time.Now())
+	http.SetCookie(w, s.sessionCookie(token, expiresAt, int(sessionTTL.Seconds())))
+	return nil
+}
+
+func (s *Server) sessionCookie(value string, expiresAt time.Time, maxAge int) *http.Cookie {
+	return &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    value,
+		Path:     "/",
+		Expires:  expiresAt,
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   strings.HasPrefix(strings.ToLower(s.cfg.AppURL), "https://"),
+	}
+}
+
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		_ = s.store.DeleteSession(r.Context(), auth.SessionTokenHash(s.cfg.SessionSecret, cookie.Value))
+	}
+	http.SetCookie(w, s.sessionCookie("", time.Unix(0, 0), -1))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := s.store.ListUsers(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, users)
+}
+
+func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
+	var input userPayload
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	passwordHash, err := auth.HashPassword(input.Password)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	user, err := s.store.CreateUser(r.Context(), store.UserInput{
+		DisplayName:  input.DisplayName,
+		Email:        input.Email,
+		Role:         store.UserRole(input.Role),
+		Active:       input.activeValue(true),
+		PasswordHash: passwordHash,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, user)
+}
+
+func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, errors.New("invalid user id"))
+		return
+	}
+	var input userPayload
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var passwordHash string
+	if input.Password != "" {
+		passwordHash, err = auth.HashPassword(input.Password)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	user, err := s.store.UpdateUser(r.Context(), id, store.UserUpdate{
+		DisplayName:  input.DisplayName,
+		Email:        input.Email,
+		Role:         store.UserRole(input.Role),
+		Active:       input.activeValue(true),
+		PasswordHash: passwordHash,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, errors.New("invalid user id"))
+		return
+	}
+	if err := s.store.DeleteUser(r.Context(), id); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -244,6 +472,26 @@ type printerPayload struct {
 	Status       string `json:"status"`
 	Capabilities string `json:"capabilities"`
 	Notes        string `json:"notes"`
+}
+
+type loginPayload struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type userPayload struct {
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+	Role        string `json:"role"`
+	Active      *bool  `json:"active"`
+	Password    string `json:"password"`
+}
+
+func (p userPayload) activeValue(fallback bool) bool {
+	if p.Active == nil {
+		return fallback
+	}
+	return *p.Active
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

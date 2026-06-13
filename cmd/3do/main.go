@@ -31,6 +31,10 @@ func main() {
 	}
 
 	cfg := config.Load()
+	if err := cfg.ValidateForServe(); err != nil {
+		slog.Error("invalid configuration", "err", err)
+		os.Exit(1)
+	}
 	if err := cfg.EnsureDirs(); err != nil {
 		slog.Error("failed to prepare data directories", "err", err)
 		os.Exit(1)

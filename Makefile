@@ -1,7 +1,7 @@
 .PHONY: dev build test fmt docker-build
 
 dev:
-	go run ./cmd/3do
+	SESSION_SECRET=$${SESSION_SECRET:-local-development-session-secret-do-not-use-in-production} go run ./cmd/3do
 
 build:
 	mkdir -p bin
