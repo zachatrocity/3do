@@ -54,6 +54,21 @@
     </main>
 
     <main id="app-view" class="layout hidden">
+      <section class="dashboard-panel" aria-labelledby="dashboard-title">
+        <div class="dashboard-head">
+          <div>
+            <h2 id="dashboard-title">Queue dashboard</h2>
+            <p class="muted">Current print work, blockers, and next up.</p>
+          </div>
+          <div class="dashboard-actions">
+            <a class="button-link" href="#item-form">Add print</a>
+            <a class="button-link secondary-link" href="#queue">View queue</a>
+            <a id="admin-link" class="button-link secondary-link hidden" href="#admin-panel">Admin</a>
+          </div>
+        </div>
+        <div id="dashboard" class="dashboard"></div>
+      </section>
+
       <section class="panel create-panel">
         <h2>Add print</h2>
         <form id="item-form">
@@ -70,7 +85,7 @@
               Status
               <select name="status">
                 <option value="backlog">Backlog</option>
-                <option value="queued">Queued</option>
+                <option value="queued" selected>Queued</option>
                 <option value="printing">Printing</option>
                 <option value="blocked">Blocked</option>
               </select>
@@ -78,7 +93,7 @@
             <label>
               Priority
               <select name="priority">
-                <option value="normal">Normal</option>
+                <option value="normal" selected>Normal</option>
                 <option value="low">Low</option>
                 <option value="high">High</option>
                 <option value="urgent">Urgent</option>
@@ -138,9 +153,9 @@
         </form>
       </section>
 
-      <section class="panel queue-panel">
+      <section class="panel queue-panel" id="queue-panel">
         <div class="section-head">
-          <h2>Queue</h2>
+          <h2 id="queue">Queue</h2>
           <div class="toolbar">
             <select id="status-filter" aria-label="Filter by status">
               <option value="">All statuses</option>
@@ -151,10 +166,10 @@
               <option value="done">Done</option>
               <option value="cancelled">Cancelled</option>
             </select>
-            <button id="refresh" type="button">Refresh</button>
+            <button id="refresh" class="secondary" type="button">Refresh</button>
           </div>
         </div>
-        <div id="queue" class="queue"></div>
+        <div id="queue-list" class="queue"></div>
       </section>
 
       <section class="panel detail-panel">
@@ -167,34 +182,38 @@
         </div>
       </section>
 
-      <section class="panel printer-panel">
-        <h2>Printers</h2>
-        <form id="printer-form" class="inline-form">
-          <input name="name" required placeholder="Prusa MK4">
-          <input name="location" placeholder="Garage">
-          <button type="submit">Add</button>
-        </form>
-        <div id="printers" class="printers"></div>
-      </section>
+      <section class="panel admin-panel hidden" id="admin-panel">
+        <h2>Admin</h2>
 
-      <section class="panel users-panel hidden" id="users-panel">
-        <h2>Users</h2>
-        <form id="user-form" class="user-create-form">
-          <input name="display_name" required placeholder="Display name">
-          <input name="email" type="email" required placeholder="email@example.com">
-          <input name="password" type="password" required minlength="12" placeholder="Temporary password">
-          <select name="role">
-            <option value="member">Member</option>
-            <option value="admin">Admin</option>
-          </select>
-          <label class="checkbox-label">
-            <input name="active" type="checkbox" checked>
-            Active
-          </label>
-          <button type="submit">Add user</button>
-        </form>
-        <p id="user-status" class="form-status"></p>
-        <div id="users" class="users"></div>
+        <section class="admin-section">
+          <h3>Printers</h3>
+          <form id="printer-form" class="inline-form">
+            <input name="name" required placeholder="Prusa MK4">
+            <input name="location" placeholder="Garage">
+            <button type="submit">Add printer</button>
+          </form>
+          <div id="printers" class="printers"></div>
+        </section>
+
+        <section class="admin-section">
+          <h3>Users</h3>
+          <form id="user-form" class="user-create-form">
+            <input name="display_name" required placeholder="Display name">
+            <input name="email" type="email" required placeholder="email@example.com">
+            <input name="password" type="password" required minlength="12" placeholder="Password">
+            <select name="role">
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+            <label class="checkbox-label">
+              <input name="active" type="checkbox" checked>
+              Active
+            </label>
+            <button type="submit">Add user</button>
+          </form>
+          <p id="user-status" class="form-status"></p>
+          <div id="users" class="users"></div>
+        </section>
       </section>
     </main>
 
