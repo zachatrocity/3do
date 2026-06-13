@@ -66,63 +66,64 @@ function showApp() {
   adminUsersLink.classList.toggle("hidden", currentUser?.role !== "admin");
   sessionArea.innerHTML = `
     <span>${escapeHTML(currentUser.display_name)}</span>
-    <button id="logout" type="button">Sign out</button>
+    <button id="logout" class="secondary" type="button">Sign out</button>
   `;
   document.querySelector("#logout").addEventListener("click", logout);
 }
 
 async function refresh() {
-  const requests = [
-    api("/api/queue-items"),
-    api("/api/printers"),
-  ];
+  const requests = [api("/api/queue-items")];
   if (currentUser?.role === "admin") {
-    requests.push(api("/api/users"));
+    requests.push(api("/api/printers"), api("/api/users"));
   }
   const [items, printers, users] = await Promise.all(requests);
   queueItems = items || [];
   currentPrinters = printers || [];
+  
   renderDashboard();
   renderQueue();
   if (selectedItemId) await loadItemDetail(selectedItemId);
-  renderPrinters(currentPrinters);
-  if (currentUser?.role === "admin") renderUsers(users || []);
+  if (currentUser?.role === "admin") {
+    renderPrinters(currentPrinters);
+    renderUsers(users || []);
+  }
 }
 
 function renderDashboard() {
-  const active = queueItems.filter((item) => item.status === "printing");
-  const queued = queueItems.filter((item) => item.status === "queued");
-  const backlog = queueItems.filter((item) => item.status === "backlog");
-  const blocked = queueItems.filter((item) => item.status === "blocked");
-  const done = queueItems.filter((item) => item.status === "done");
-  const open = queueItems.filter((item) => !["done", "cancelled"].includes(item.status));
-  const availablePrinters = currentPrinters.filter((printer) => printer.active && !String(printer.status || "").toLowerCase().includes("offline"));
+  const active = queueItems.filter((i) => i.status === "printing");
+  const queued = queueItems.filter((i) => i.status === "queued");
+  const blocked = queueItems.filter((i) => i.status === "blocked");
+  const open = queueItems.filter((i) => !["done", "cancelled"].includes(i.status));
+  const done = queueItems.filter((i) => i.status === "done");
   const recentDone = sortRecent(done).slice(0, 3);
+  const backlog = queueItems.filter(i => i.status === "backlog");
   const nextUp = [...queued, ...backlog].slice(0, 5);
+
+  const availablePrinters = currentPrinters.filter((p) => p.active && !String(p.status || "").toLowerCase().includes("offline"));
 
   dashboardEl.innerHTML = `
     <div class="metric-grid">
-      ${metricCard("Printing", active.length, "Jobs currently on a printer", "status-printing")}
+      ${metricCard("Active", active.length, "Jobs printing", "status-printing")}
       ${metricCard("Queued", queued.length, "Ready to start", "status-queued")}
       ${metricCard("Blocked", blocked.length, "Needs attention", "status-blocked")}
-      ${metricCard("Open", open.length, "Total unfinished requests", "")}
+      ${metricCard("Total Open", open.length, "Remaining jobs", "")}
     </div>
     <div class="dashboard-grid">
-      ${dashboardSection("Active prints", active, "Nothing is printing right now.")}
-      ${dashboardSection("Needs attention", blocked, "No blocked queue items.")}
-      ${dashboardSection("Up next", nextUp, "No queued or backlog items.")}
+      ${dashboardSection("Current Prints", active, "Nothing is printing.")}
+      ${dashboardSection("Needs Attention", blocked, "No blocked items.")}
+      ${dashboardSection("Up Next", nextUp, "Queue is empty.")}
       <section class="dashboard-card">
         <div class="card-head">
-          <h3>Printer context</h3>
+          <h3>Printers</h3>
           ${currentUser?.role === "admin" ? `<a href="#printers">Manage</a>` : ""}
         </div>
         <div class="printer-summary">
           <strong>${availablePrinters.length}</strong>
-          <span>${availablePrinters.length === 1 ? "active printer" : "active printers"}</span>
+          <span>active</span>
         </div>
         ${renderPrinterPills(currentPrinters.slice(0, 5))}
       </section>
-      ${dashboardSection("Recently completed", recentDone, "No completed prints yet.")}
+      ${dashboardSection("Recent Activity", recentDone, "No recent completions.")}
     </div>
   `;
 }
@@ -145,7 +146,7 @@ function dashboardSection(title, items, emptyText) {
         ${items.length > 0 ? `<span>${items.length}</span>` : ""}
       </div>
       <div class="dashboard-list">
-        ${items.length === 0 ? `<p class="muted">${escapeHTML(emptyText)}</p>` : items.slice(0, 5).map(renderDashboardItem).join("")}
+        ${items.length === 0 ? `<p class="muted">${escapeHTML(emptyText)}</p>` : items.map(renderDashboardItem).join("")}
       </div>
     </section>
   `;
@@ -164,13 +165,11 @@ function renderDashboardItem(item) {
 }
 
 function itemSubtitle(item) {
-  return [item.priority, item.printing_by || item.owner || item.requested_by, formatDue(item.due_at)]
-    .filter(Boolean)
-    .join(" - ");
+  return [item.priority, item.printing_by || item.owner, formatDue(item.due_at)].filter(Boolean).join(" • ");
 }
 
 function renderPrinterPills(items) {
-  if (items.length === 0) return `<p class="muted">No printers have been added.</p>`;
+  if (items.length === 0) return `<p class="muted">No printers added.</p>`;
   return `<div class="printer-pills">${items.map((printer) => `
     <span>
       <strong>${escapeHTML(printer.name)}</strong>
@@ -194,7 +193,7 @@ function renderQueue() {
       <div class="item-head">
         <div>
           <div class="item-title">${escapeHTML(item.title)}</div>
-          <p class="muted">${escapeHTML(item.description || "")}</p>
+          <p class="muted">${escapeHTML(item.description || "No notes")}</p>
         </div>
         <div class="badges">
           <span class="badge status-${item.status}">${escapeHTML(item.status)}</span>
@@ -202,30 +201,26 @@ function renderQueue() {
         </div>
       </div>
       <div class="meta">
-        ${meta("Requested", item.requested_by)}
+        ${meta("Requester", item.requested_by)}
         ${meta("Owner", item.owner)}
-        ${meta("Printing", item.printing_by)}
+        ${meta("Printer", item.printing_by)}
         ${meta("Material", item.material)}
         ${meta("Color", item.color)}
         ${meta("Qty", item.quantity)}
       </div>
       ${renderLinks(item.links || [])}
       ${renderFiles(item.files || [])}
-      <button class="secondary view-detail" type="button">Open detail</button>
+      <button class="secondary view-detail" type="button">View detail</button>
     `;
     node.querySelector(".view-detail").addEventListener("click", () => loadItemDetail(item.id));
     queueEl.appendChild(node);
   }
 }
 
-function sortRecent(items) {
-  return [...items].sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
-}
-
 async function loadItemDetail(id) {
   selectedItemId = Number(id);
   closeDetailButton.classList.remove("hidden");
-  itemDetailEl.innerHTML = `<p class="muted">Loading item...</p>`;
+  itemDetailEl.innerHTML = `<p class="muted">Loading item details...</p>`;
   renderQueue();
   try {
     const item = await api(`/api/queue-items/${selectedItemId}`);
@@ -263,23 +258,23 @@ function renderItemDetail(item) {
       </div>
       <div class="grid">
         <label>Quantity<input name="quantity" type="number" min="1" value="${escapeAttr(item.quantity || 1)}"></label>
-        <label>Estimate<input name="estimated_minutes" type="number" min="1" value="${escapeAttr(item.estimated_minutes || "")}"></label>
+        <label>Estimate (min)<input name="estimated_minutes" type="number" min="1" value="${escapeAttr(item.estimated_minutes || "")}"></label>
       </div>
       <label>Due date<input name="due_at" type="date" value="${escapeAttr(formatDateInput(item.due_at))}"></label>
-      <label>Status note<textarea name="status_note" rows="2" placeholder="Reason for status change"></textarea></label>
-      <button type="submit">Save item</button>
+      <label>Status note<textarea name="status_note" rows="2" placeholder="Brief reason for the status change"></textarea></label>
+      <button type="submit">Update item</button>
       <p id="detail-status" class="form-status"></p>
     </form>
     <section class="subsection">
       <h3>Notes</h3>
       <form id="note-form">
-        <textarea name="body" rows="3" required placeholder="Add a comment"></textarea>
-        <button type="submit">Add note</button>
+        <textarea name="body" rows="3" required placeholder="Add a comment..."></textarea>
+        <button type="submit">Post note</button>
       </form>
       <div class="timeline">${renderNotes(item.notes || [])}</div>
     </section>
     <section class="subsection">
-      <h3>Status history</h3>
+      <h3>Status History</h3>
       <div class="timeline">${renderStatusEvents(item.status_events || [])}</div>
     </section>
   `;
@@ -297,18 +292,18 @@ function renderNotes(notes) {
   if (notes.length === 0) return `<p class="muted">No notes yet.</p>`;
   return notes.map((note) => `
     <article class="timeline-entry">
-      <div><strong>${escapeHTML(note.author || "Unknown")}</strong> <span>${escapeHTML(formatDateTime(note.created_at))}</span></div>
+      <span>${escapeHTML(note.author || "Unknown")} • ${escapeHTML(formatDateTime(note.created_at))}</span>
       <p>${escapeHTML(note.body)}</p>
     </article>
   `).join("");
 }
 
 function renderStatusEvents(events) {
-  if (events.length === 0) return `<p class="muted">No status history yet.</p>`;
+  if (events.length === 0) return `<p class="muted">No status history.</p>`;
   return events.map((event) => `
     <article class="timeline-entry">
-      <div><strong>${escapeHTML(event.old_status ? `${event.old_status} -> ${event.new_status}` : event.new_status)}</strong> <span>${escapeHTML(formatDateTime(event.created_at))}</span></div>
-      <p>${escapeHTML([event.actor, event.note].filter(Boolean).join(": ") || "Status recorded.")}</p>
+      <span>${escapeHTML(event.old_status ? `${event.old_status} → ${event.new_status}` : event.new_status)} • ${escapeHTML(formatDateTime(event.created_at))}</span>
+      <p><strong>${escapeHTML(event.actor || "System")}:</strong> ${escapeHTML(event.note || "Status updated.")}</p>
     </article>
   `).join("");
 }
@@ -316,7 +311,7 @@ function renderStatusEvents(events) {
 function renderPrinters(printers) {
   printersEl.innerHTML = "";
   if (printers.length === 0) {
-    printersEl.innerHTML = `<p class="muted">No printers yet.</p>`;
+    printersEl.innerHTML = `<p class="muted">No printers configured.</p>`;
     return;
   }
   for (const printer of printers) {
@@ -338,7 +333,7 @@ function renderPrinters(printers) {
 function renderUsers(users) {
   usersEl.innerHTML = "";
   if (users.length === 0) {
-    usersEl.innerHTML = `<p class="muted">No users yet.</p>`;
+    usersEl.innerHTML = `<p class="muted">No users found.</p>`;
     return;
   }
   for (const user of users) {
@@ -367,18 +362,18 @@ function renderUsers(users) {
 }
 
 function meta(label, value) {
-  if (value === undefined || value === null || value === "") return "";
+  if (!value) return "";
   return `<span><strong>${label}:</strong> ${escapeHTML(String(value))}</span>`;
 }
 
 function renderLinks(links) {
   if (links.length === 0) return "";
-  return `<div class="links">${links.map((link) => `<a href="${escapeAttr(link.url)}" target="_blank" rel="noreferrer">${escapeHTML(link.source_type)}: ${escapeHTML(link.url)}</a>`).join("")}</div>`;
+  return `<div class="links">${links.map((link) => `<a href="${escapeAttr(link.url)}" target="_blank" rel="noreferrer">${escapeHTML(link.source_type || "Source")}: ${escapeHTML(link.url)}</a>`).join("")}</div>`;
 }
 
 function renderFiles(files) {
   if (files.length === 0) return "";
-  return `<div class="files">${files.map((file) => `<span>${escapeHTML(file.kind)} - ${escapeHTML(file.original_name)} - ${formatBytes(file.size_bytes)}</span>`).join("")}</div>`;
+  return `<div class="files">${files.map((file) => `<span>${escapeHTML(file.kind)}: ${escapeHTML(file.original_name)} (${formatBytes(file.size_bytes)})</span>`).join("")}</div>`;
 }
 
 function formatBytes(value) {
@@ -426,6 +421,10 @@ function payloadFromForm(form) {
   const payload = Object.fromEntries(formData.entries());
   payload.active = formData.get("active") === "on";
   return payload;
+}
+
+function sortRecent(items) {
+  return [...items].sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
 }
 
 async function logout() {
@@ -479,7 +478,7 @@ itemForm.addEventListener("submit", async (event) => {
     const formData = new FormData(itemForm);
     await api("/api/queue-items", { method: "POST", body: formData });
     itemForm.reset();
-    formStatus.textContent = "Added.";
+    formStatus.textContent = "Added to queue.";
     await refresh();
   } catch (error) {
     formStatus.textContent = error.message;

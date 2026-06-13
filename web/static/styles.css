@@ -124,14 +124,29 @@ h2 {
   padding: 18px;
 }
 
-.create-panel,
-.printer-panel {
+.create-panel {
   align-self: start;
 }
 
-.printer-panel,
-.users-panel {
+.admin-panel {
   grid-column: 1 / -1;
+}
+
+.admin-section {
+  display: grid;
+  gap: 12px;
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-section:first-of-type {
+  margin-top: 0;
+}
+
+.admin-section h3 {
+  margin: 0;
+  font-size: 17px;
 }
 
 .detail-panel {

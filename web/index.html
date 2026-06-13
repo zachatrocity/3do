@@ -85,7 +85,7 @@
               Status
               <select name="status">
                 <option value="backlog">Backlog</option>
-                <option value="queued">Queued</option>
+                <option value="queued" selected>Queued</option>
                 <option value="printing">Printing</option>
                 <option value="blocked">Blocked</option>
               </select>
@@ -93,7 +93,7 @@
             <label>
               Priority
               <select name="priority">
-                <option value="normal">Normal</option>
+                <option value="normal" selected>Normal</option>
                 <option value="low">Low</option>
                 <option value="high">High</option>
                 <option value="urgent">Urgent</option>
@@ -166,7 +166,7 @@
               <option value="done">Done</option>
               <option value="cancelled">Cancelled</option>
             </select>
-            <button id="refresh" type="button">Refresh</button>
+            <button id="refresh" class="secondary" type="button">Refresh</button>
           </div>
         </div>
         <div id="queue" class="queue"></div>
@@ -187,7 +187,7 @@
         <form id="printer-form" class="inline-form">
           <input name="name" required placeholder="Prusa MK4">
           <input name="location" placeholder="Garage">
-          <button type="submit">Add</button>
+          <button type="submit">Add printer</button>
         </form>
         <div id="printers" class="printers"></div>
       </section>
