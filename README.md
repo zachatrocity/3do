@@ -33,7 +33,7 @@ Published images are available from GHCR as `ghcr.io/zachatrocity/3do`.
 Useful tags:
 
 - `edge` - latest image from the default branch.
-- `swe-2-scaffold-3do` - default branch image.
+- `main` - default branch image.
 - `sha-<short-sha>` - immutable image for a specific commit.
 - `latest` - default branch only.
 - `vX.Y.Z` - release tag builds.

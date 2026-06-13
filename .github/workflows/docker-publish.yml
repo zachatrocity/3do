@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - swe-2-scaffold-3do
+      - main
     tags:
       - "v*.*.*"
 
