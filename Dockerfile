@@ -20,7 +20,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
 	&& mkdir -p /data \
 	&& chown -R app:app /data
 
-ENV ADDR=:8080 DATA_DIR=/data PUID=1000 PGID=1000
+ENV PORT=8080 DATA_DIR=/data PUID=1000 PGID=1000
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["/app/3do"]

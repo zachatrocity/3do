@@ -23,7 +23,7 @@ docker run -d \
 	--name "$container" \
 	-p "127.0.0.1:${host_port}:8080" \
 	-e APP_URL="http://127.0.0.1:${host_port}" \
-	-e ADDR=:8080 \
+	-e PORT=8080 \
 	-e DATA_DIR=/data \
 	-e PUID="$host_uid" \
 	-e PGID="$host_gid" \

@@ -17,7 +17,7 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		cfg := config.Load()
 		client := http.Client{Timeout: 3 * time.Second}
-		resp, err := client.Get("http://127.0.0.1" + cfg.Addr + "/healthz")
+		resp, err := client.Get("http://127.0.0.1:" + cfg.Port + "/healthz")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -53,12 +53,12 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:              cfg.Addr,
+		Addr:              cfg.ListenAddr,
 		Handler:           app.NewServer(cfg, db),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	slog.Info("starting 3do", "addr", cfg.Addr, "data_dir", cfg.DataDir, "database", cfg.DatabasePath)
+	slog.Info("starting 3do", "port", cfg.Port, "data_dir", cfg.DataDir, "database", cfg.DatabasePath)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("server stopped", "err", err)
 		os.Exit(1)

@@ -48,7 +48,7 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
   -e APP_URL=http://localhost:8080 \
-  -e ADDR=:8080 \
+  -e PORT=8080 \
   -e DATA_DIR=/data \
   -e DATABASE_PATH=/data/3do.db \
   -e UPLOAD_MAX_MB=512 \
@@ -68,7 +68,7 @@ services:
       - "8080:8080"
     environment:
       APP_URL: http://localhost:8080
-      ADDR: :8080
+      PORT: "8080"
       DATA_DIR: /data
       PUID: "1000"
       PGID: "1000"
@@ -144,7 +144,7 @@ unset; set your own value when testing production-like config.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ADDR` | `:8080` | HTTP listen address |
+| `PORT` | `8080` | HTTP listen port |
 | `APP_URL` | `http://localhost:8080` | Public URL for links and reverse proxy setups |
 | `DATA_DIR` | `./data` | Durable data root |
 | `PUID` | `1000` | Container runtime UID for files under `DATA_DIR` |
