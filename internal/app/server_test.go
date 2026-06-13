@@ -115,6 +115,79 @@ func TestMemberCannotManageUsers(t *testing.T) {
 	}
 }
 
+func TestQueueItemDetailUpdateAndNotesAPI(t *testing.T) {
+	handler := newTestServer(t)
+	cookie := bootstrapAdmin(t, handler)
+
+	create := map[string]any{
+		"title":        "Bracket",
+		"status":       "queued",
+		"priority":     "normal",
+		"requested_by": "Zach",
+		"owner":        "Shop",
+		"quantity":     1,
+		"material":     "PLA",
+		"color":        "Black",
+	}
+	resp := requestJSON(t, handler, http.MethodPost, "/api/queue-items", create, cookie)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected queue item create to succeed, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var created store.QueueItem
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+
+	update := map[string]any{
+		"status":            "printing",
+		"priority":          "high",
+		"owner":             "Alex",
+		"printing_by":       "Voron",
+		"quantity":          2,
+		"material":          "PETG",
+		"color":             "Orange",
+		"estimated_minutes": "120",
+		"due_at":            "2026-07-04",
+		"status_note":       "Loaded plate",
+	}
+	resp = requestJSON(t, handler, http.MethodPatch, fmt.Sprintf("/api/queue-items/%d", created.ID), update, cookie)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected queue item update to succeed, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var updated store.QueueItemDetail
+	if err := json.NewDecoder(resp.Body).Decode(&updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != store.StatusPrinting || updated.Priority != store.PriorityHigh || updated.PrintingBy != "Voron" {
+		t.Fatalf("unexpected updated item: %+v", updated.QueueItem)
+	}
+	if updated.EstimatedMinutes == nil || *updated.EstimatedMinutes != 120 {
+		t.Fatalf("expected estimate to round trip, got %+v", updated.EstimatedMinutes)
+	}
+	if len(updated.StatusEvents) != 2 {
+		t.Fatalf("expected create and update events, got %d", len(updated.StatusEvents))
+	}
+
+	resp = requestJSON(t, handler, http.MethodPost, fmt.Sprintf("/api/queue-items/%d/notes", created.ID), map[string]any{
+		"body": "Supports removed cleanly.",
+	}, cookie)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected note create to succeed, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	resp = requestJSON(t, handler, http.MethodGet, fmt.Sprintf("/api/queue-items/%d", created.ID), nil, cookie)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected detail fetch to succeed, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var detail store.QueueItemDetail
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Notes) != 1 || detail.Notes[0].Body != "Supports removed cleanly." {
+		t.Fatalf("expected note in detail response, got %+v", detail.Notes)
+	}
+}
+
 func TestCannotDeleteOrDisableLastAdmin(t *testing.T) {
 	handler := newTestServer(t)
 	adminCookie := bootstrapAdmin(t, handler)

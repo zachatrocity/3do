@@ -7,6 +7,8 @@ const queueEl = document.querySelector("#queue");
 const printersEl = document.querySelector("#printers");
 const usersPanel = document.querySelector("#users-panel");
 const usersEl = document.querySelector("#users");
+const itemDetailEl = document.querySelector("#item-detail");
+const closeDetailButton = document.querySelector("#close-detail");
 const itemForm = document.querySelector("#item-form");
 const printerForm = document.querySelector("#printer-form");
 const userForm = document.querySelector("#user-form");
@@ -20,6 +22,7 @@ const userStatus = document.querySelector("#user-status");
 
 let queueItems = [];
 let currentUser = null;
+let selectedItemId = null;
 
 async function api(path, options = {}) {
   const response = await fetch(path, options);
@@ -75,6 +78,7 @@ async function refresh() {
   const [items, printers, users] = await Promise.all(requests);
   queueItems = items || [];
   renderQueue();
+  if (selectedItemId) await loadItemDetail(selectedItemId);
   renderPrinters(printers || []);
   if (currentUser?.role === "admin") renderUsers(users || []);
 }
@@ -89,7 +93,7 @@ function renderQueue() {
   }
   for (const item of items) {
     const node = document.createElement("article");
-    node.className = "item";
+    node.className = `item${selectedItemId === item.id ? " selected" : ""}`;
     node.innerHTML = `
       <div class="item-head">
         <div>
@@ -111,9 +115,102 @@ function renderQueue() {
       </div>
       ${renderLinks(item.links || [])}
       ${renderFiles(item.files || [])}
+      <button class="secondary view-detail" type="button">Open detail</button>
     `;
+    node.querySelector(".view-detail").addEventListener("click", () => loadItemDetail(item.id));
     queueEl.appendChild(node);
   }
+}
+
+async function loadItemDetail(id) {
+  selectedItemId = Number(id);
+  closeDetailButton.classList.remove("hidden");
+  itemDetailEl.innerHTML = `<p class="muted">Loading item...</p>`;
+  renderQueue();
+  try {
+    const item = await api(`/api/queue-items/${selectedItemId}`);
+    renderItemDetail(item);
+  } catch (error) {
+    itemDetailEl.innerHTML = `<p class="muted">${escapeHTML(error.message)}</p>`;
+  }
+}
+
+function renderItemDetail(item) {
+  itemDetailEl.className = "detail";
+  itemDetailEl.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="item-title">${escapeHTML(item.title)}</div>
+        <p class="muted">${escapeHTML(item.requested_by || "No requester")}</p>
+      </div>
+      <span class="badge status-${item.status}">${escapeHTML(item.status)}</span>
+    </div>
+    <p>${escapeHTML(item.description || "No notes on the request.")}</p>
+    ${renderLinks(item.links || [])}
+    ${renderFiles(item.files || [])}
+    <form id="detail-form" class="detail-form">
+      <div class="grid">
+        ${selectField("status", "Status", item.status, ["backlog", "queued", "printing", "blocked", "done", "cancelled"])}
+        ${selectField("priority", "Priority", item.priority, ["low", "normal", "high", "urgent"])}
+      </div>
+      <div class="grid">
+        <label>Owner<input name="owner" value="${escapeAttr(item.owner)}"></label>
+        <label>Printing by<input name="printing_by" value="${escapeAttr(item.printing_by)}"></label>
+      </div>
+      <div class="grid">
+        <label>Material<input name="material" value="${escapeAttr(item.material)}"></label>
+        <label>Color<input name="color" value="${escapeAttr(item.color)}"></label>
+      </div>
+      <div class="grid">
+        <label>Quantity<input name="quantity" type="number" min="1" value="${escapeAttr(item.quantity || 1)}"></label>
+        <label>Estimate<input name="estimated_minutes" type="number" min="1" value="${escapeAttr(item.estimated_minutes || "")}"></label>
+      </div>
+      <label>Due date<input name="due_at" type="date" value="${escapeAttr(formatDateInput(item.due_at))}"></label>
+      <label>Status note<textarea name="status_note" rows="2" placeholder="Reason for status change"></textarea></label>
+      <button type="submit">Save item</button>
+      <p id="detail-status" class="form-status"></p>
+    </form>
+    <section class="subsection">
+      <h3>Notes</h3>
+      <form id="note-form">
+        <textarea name="body" rows="3" required placeholder="Add a comment"></textarea>
+        <button type="submit">Add note</button>
+      </form>
+      <div class="timeline">${renderNotes(item.notes || [])}</div>
+    </section>
+    <section class="subsection">
+      <h3>Status history</h3>
+      <div class="timeline">${renderStatusEvents(item.status_events || [])}</div>
+    </section>
+  `;
+  document.querySelector("#detail-form").addEventListener("submit", saveItemDetail);
+  document.querySelector("#note-form").addEventListener("submit", addItemNote);
+}
+
+function selectField(name, label, value, options) {
+  return `<label>${label}<select name="${name}">${options.map((option) => (
+    `<option value="${option}"${value === option ? " selected" : ""}>${option}</option>`
+  )).join("")}</select></label>`;
+}
+
+function renderNotes(notes) {
+  if (notes.length === 0) return `<p class="muted">No notes yet.</p>`;
+  return notes.map((note) => `
+    <article class="timeline-entry">
+      <div><strong>${escapeHTML(note.author || "Unknown")}</strong> <span>${escapeHTML(formatDateTime(note.created_at))}</span></div>
+      <p>${escapeHTML(note.body)}</p>
+    </article>
+  `).join("");
+}
+
+function renderStatusEvents(events) {
+  if (events.length === 0) return `<p class="muted">No status history yet.</p>`;
+  return events.map((event) => `
+    <article class="timeline-entry">
+      <div><strong>${escapeHTML(event.old_status ? `${event.old_status} -> ${event.new_status}` : event.new_status)}</strong> <span>${escapeHTML(formatDateTime(event.created_at))}</span></div>
+      <p>${escapeHTML([event.actor, event.note].filter(Boolean).join(": ") || "Status recorded.")}</p>
+    </article>
+  `).join("");
 }
 
 function renderPrinters(printers) {
@@ -189,6 +286,18 @@ function formatBytes(value) {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatDateInput(value) {
+  if (!value) return "";
+  return String(value).slice(0, 10);
+}
+
+function formatDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString();
 }
 
 function escapeHTML(value) {
@@ -270,6 +379,40 @@ itemForm.addEventListener("submit", async (event) => {
   }
 });
 
+async function saveItemDetail(event) {
+  event.preventDefault();
+  const statusEl = document.querySelector("#detail-status");
+  statusEl.textContent = "Saving...";
+  const form = event.currentTarget;
+  const formData = new FormData(form);
+  const payload = Object.fromEntries(formData.entries());
+  payload.quantity = Number(payload.quantity || 1);
+  try {
+    await api(`/api/queue-items/${selectedItemId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    statusEl.textContent = "Saved.";
+    await refresh();
+  } catch (error) {
+    statusEl.textContent = error.message;
+  }
+}
+
+async function addItemNote(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const payload = Object.fromEntries(new FormData(form).entries());
+  await api(`/api/queue-items/${selectedItemId}/notes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  form.reset();
+  await loadItemDetail(selectedItemId);
+}
+
 printerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(printerForm);
@@ -335,6 +478,13 @@ async function deleteUser(event) {
 }
 
 statusFilter.addEventListener("change", renderQueue);
+closeDetailButton.addEventListener("click", () => {
+  selectedItemId = null;
+  closeDetailButton.classList.add("hidden");
+  itemDetailEl.className = "detail-empty";
+  itemDetailEl.innerHTML = `<p class="muted">Select a queue item.</p>`;
+  renderQueue();
+});
 document.querySelector("#refresh").addEventListener("click", () => {
   refresh().catch((error) => {
     queueEl.innerHTML = `<p class="muted">${escapeHTML(error.message)}</p>`;

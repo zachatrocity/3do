@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestQueueItemLifecycle(t *testing.T) {
@@ -69,6 +70,89 @@ func TestQueueItemLifecycle(t *testing.T) {
 	}
 	if len(items[0].Files) != 1 {
 		t.Fatalf("expected 1 file, got %d", len(items[0].Files))
+	}
+}
+
+func TestQueueItemDetailUpdateNotesAndStatusHistory(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	item, err := db.CreateQueueItem(ctx, QueueItemInput{
+		Title:    "Panel clips",
+		Status:   StatusQueued,
+		Priority: PriorityNormal,
+		Owner:    "Shop",
+		Quantity: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dueAt := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	estimate := 95
+	updated, err := db.UpdateQueueItem(ctx, item.ID, QueueItemUpdate{
+		Status:           StatusPrinting,
+		Priority:         PriorityHigh,
+		Owner:            "Alex",
+		PrintingBy:       "Prusa MK4",
+		Quantity:         4,
+		Material:         "PETG",
+		Color:            "Orange",
+		EstimatedMinutes: &estimate,
+		DueAt:            &dueAt,
+		Actor:            "Admin",
+		Note:             "Started print",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != StatusPrinting || updated.Priority != PriorityHigh || updated.Owner != "Alex" {
+		t.Fatalf("unexpected updated item: %+v", updated.QueueItem)
+	}
+	if updated.EstimatedMinutes == nil || *updated.EstimatedMinutes != estimate {
+		t.Fatalf("expected estimate %d, got %+v", estimate, updated.EstimatedMinutes)
+	}
+
+	if _, err := db.AddNote(ctx, item.ID, "Admin", "First layer looks good."); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := db.GetQueueItem(ctx, item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Notes) != 1 || detail.Notes[0].Body != "First layer looks good." {
+		t.Fatalf("expected hydrated note, got %+v", detail.Notes)
+	}
+	if len(detail.StatusEvents) != 2 {
+		t.Fatalf("expected create and update status events, got %d", len(detail.StatusEvents))
+	}
+	last := detail.StatusEvents[1]
+	if last.OldStatus != StatusQueued || last.NewStatus != StatusPrinting || last.Actor != "Admin" {
+		t.Fatalf("unexpected status event: %+v", last)
+	}
+
+	if _, err := db.UpdateQueueItem(ctx, item.ID, QueueItemUpdate{
+		Status:   StatusPrinting,
+		Priority: PriorityHigh,
+		Owner:    "Alex",
+		Quantity: 4,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	detail, err = db.GetQueueItem(ctx, item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.StatusEvents) != 2 {
+		t.Fatalf("unchanged status should not add history, got %d events", len(detail.StatusEvents))
 	}
 }
 

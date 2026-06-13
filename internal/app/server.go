@@ -50,6 +50,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/users/{id}", s.requireAuth(s.deleteUser, true))
 	s.mux.HandleFunc("GET /api/queue-items", s.requireAuth(s.listQueueItems, false))
 	s.mux.HandleFunc("POST /api/queue-items", s.requireAuth(s.createQueueItem, false))
+	s.mux.HandleFunc("GET /api/queue-items/{id}", s.requireAuth(s.getQueueItem, false))
+	s.mux.HandleFunc("PATCH /api/queue-items/{id}", s.requireAuth(s.updateQueueItem, false))
+	s.mux.HandleFunc("POST /api/queue-items/{id}/notes", s.requireAuth(s.addQueueItemNote, false))
 	s.mux.HandleFunc("GET /api/printers", s.requireAuth(s.listPrinters, false))
 	s.mux.HandleFunc("POST /api/printers", s.requireAuth(s.createPrinter, false))
 	s.mux.Handle("/", http.FileServer(http.Dir("web")))
@@ -281,6 +284,20 @@ func (s *Server) listQueueItems(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
+func (s *Server) getQueueItem(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r.PathValue("id"), "queue item")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	item, err := s.store.GetQueueItem(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (s *Server) createQueueItem(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
 		s.createQueueItemMultipart(w, r)
@@ -330,6 +347,8 @@ func (s *Server) createQueueItemMultipart(w http.ResponseWriter, r *http.Request
 		Quantity:    parseInt(r.FormValue("quantity")),
 		Material:    r.FormValue("material"),
 		Color:       r.FormValue("color"),
+		Estimate:    r.FormValue("estimated_minutes"),
+		DueAt:       r.FormValue("due_at"),
 		Links:       splitLines(r.FormValue("links")),
 	}
 	item, err := s.store.CreateQueueItem(r.Context(), input.toStoreInput())
@@ -369,6 +388,51 @@ func (s *Server) createQueueItemMultipart(w http.ResponseWriter, r *http.Request
 func (s *Server) cleanupQueueItem(r *http.Request, itemID int64) {
 	_ = s.store.DeleteQueueItem(r.Context(), itemID)
 	_ = os.RemoveAll(filepath.Join(s.cfg.UploadDir, strconv.FormatInt(itemID, 10)))
+}
+
+func (s *Server) updateQueueItem(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r.PathValue("id"), "queue item")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var input queueItemPayload
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	user, _ := s.userFromRequest(r)
+	update, err := input.toStoreUpdate(user.DisplayName)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	item, err := s.store.UpdateQueueItem(r.Context(), id, update)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) addQueueItemNote(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r.PathValue("id"), "queue item")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var input notePayload
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	user, _ := s.userFromRequest(r)
+	note, err := s.store.AddNote(r.Context(), id, user.DisplayName, input.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, note)
 }
 
 func (s *Server) persistUpload(r *http.Request, itemID int64, header *multipart.FileHeader) error {
@@ -475,22 +539,53 @@ type queueItemPayload struct {
 	Quantity    int      `json:"quantity"`
 	Material    string   `json:"material"`
 	Color       string   `json:"color"`
+	Estimate    string   `json:"estimated_minutes"`
+	DueAt       string   `json:"due_at"`
+	StatusNote  string   `json:"status_note"`
 	Links       []string `json:"links"`
 }
 
 func (p queueItemPayload) toStoreInput() store.QueueItemInput {
+	estimate := optionalInt(p.Estimate)
+	dueAt, _ := parseOptionalTime(p.DueAt)
 	return store.QueueItemInput{
-		Title:       p.Title,
-		Description: p.Description,
-		Status:      store.QueueStatus(p.Status),
-		Priority:    store.Priority(p.Priority),
-		RequestedBy: p.RequestedBy,
-		Owner:       p.Owner,
-		PrintingBy:  p.PrintingBy,
-		Quantity:    p.Quantity,
-		Material:    p.Material,
-		Color:       p.Color,
+		Title:            p.Title,
+		Description:      p.Description,
+		Status:           store.QueueStatus(p.Status),
+		Priority:         store.Priority(p.Priority),
+		RequestedBy:      p.RequestedBy,
+		Owner:            p.Owner,
+		PrintingBy:       p.PrintingBy,
+		Quantity:         p.Quantity,
+		Material:         p.Material,
+		Color:            p.Color,
+		EstimatedMinutes: estimate,
+		DueAt:            dueAt,
 	}
+}
+
+func (p queueItemPayload) toStoreUpdate(actor string) (store.QueueItemUpdate, error) {
+	dueAt, err := parseOptionalTime(p.DueAt)
+	if err != nil {
+		return store.QueueItemUpdate{}, err
+	}
+	return store.QueueItemUpdate{
+		Status:           store.QueueStatus(p.Status),
+		Priority:         store.Priority(p.Priority),
+		Owner:            p.Owner,
+		PrintingBy:       p.PrintingBy,
+		Quantity:         p.Quantity,
+		Material:         p.Material,
+		Color:            p.Color,
+		EstimatedMinutes: optionalInt(p.Estimate),
+		DueAt:            dueAt,
+		Actor:            actor,
+		Note:             p.StatusNote,
+	}, nil
+}
+
+type notePayload struct {
+	Body string `json:"body"`
 }
 
 type printerPayload struct {
@@ -534,6 +629,14 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
+func parseID(value, name string) (int64, error) {
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || id < 1 {
+		return 0, fmt.Errorf("invalid %s id", name)
+	}
+	return id, nil
+}
+
 func splitLines(value string) []string {
 	var result []string
 	for _, line := range strings.FieldsFunc(value, func(r rune) bool { return r == '\n' || r == ',' }) {
@@ -548,6 +651,32 @@ func splitLines(value string) []string {
 func parseInt(value string) int {
 	parsed, _ := strconv.Atoi(value)
 	return parsed
+}
+
+func optionalInt(value string) *int {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 1 {
+		return nil
+	}
+	return &parsed
+}
+
+func parseOptionalTime(value string) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	for _, layout := range []string{"2006-01-02", time.RFC3339} {
+		parsed, err := time.Parse(layout, value)
+		if err == nil {
+			return &parsed, nil
+		}
+	}
+	return nil, errors.New("due_at must be YYYY-MM-DD or RFC3339")
 }
 
 func safeFilename(value string) string {

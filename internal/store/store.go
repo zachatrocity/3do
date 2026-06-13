@@ -352,6 +352,9 @@ func (s *Store) CreateQueueItem(ctx context.Context, input QueueItemInput) (Queu
 	if strings.TrimSpace(input.Title) == "" {
 		return QueueItem{}, errors.New("title is required")
 	}
+	if err := validateQueueValues(input.Status, input.Priority, input.Quantity); err != nil {
+		return QueueItem{}, err
+	}
 	row := s.db.QueryRowContext(ctx, `INSERT INTO queue_items (
 		title, description, status, priority, requested_by, owner, printing_by, printer_id,
 		quantity, material, color, estimated_minutes, due_at, reprint_of_id
@@ -382,6 +385,17 @@ func (s *Store) DeleteQueueItem(ctx context.Context, id int64) error {
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (s *Store) GetQueueItem(ctx context.Context, id int64) (QueueItemDetail, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, title, description, status, priority, requested_by, owner, printing_by,
+		printer_id, quantity, material, color, estimated_minutes, due_at, reprint_of_id, created_at, updated_at
+		FROM queue_items WHERE id = ?`, id)
+	item, err := scanQueueItem(row)
+	if err != nil {
+		return QueueItemDetail{}, err
+	}
+	return s.hydrateQueueItemDetail(ctx, item)
 }
 
 func (s *Store) ListQueueItems(ctx context.Context) ([]QueueItem, error) {
@@ -418,6 +432,58 @@ func (s *Store) ListQueueItems(ctx context.Context) ([]QueueItem, error) {
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (s *Store) UpdateQueueItem(ctx context.Context, id int64, input QueueItemUpdate) (QueueItemDetail, error) {
+	normalizeQueueUpdate(&input)
+	if err := validateQueueValues(input.Status, input.Priority, input.Quantity); err != nil {
+		return QueueItemDetail{}, err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return QueueItemDetail{}, err
+	}
+	defer tx.Rollback()
+
+	var oldStatus QueueStatus
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM queue_items WHERE id = ?`, id).Scan(&oldStatus); err != nil {
+		return QueueItemDetail{}, err
+	}
+
+	row := tx.QueryRowContext(ctx, `UPDATE queue_items
+		SET status = ?, priority = ?, owner = ?, printing_by = ?, quantity = ?,
+			material = ?, color = ?, estimated_minutes = ?, due_at = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+		RETURNING id, title, description, status, priority, requested_by, owner, printing_by,
+			printer_id, quantity, material, color, estimated_minutes, due_at, reprint_of_id, created_at, updated_at`,
+		input.Status, input.Priority, input.Owner, input.PrintingBy, input.Quantity, input.Material, input.Color,
+		input.EstimatedMinutes, timePtrString(input.DueAt), id)
+	item, err := scanQueueItem(row)
+	if err != nil {
+		return QueueItemDetail{}, err
+	}
+	if oldStatus != input.Status {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO status_events (queue_item_id, old_status, new_status, actor, note)
+			VALUES (?, ?, ?, ?, ?)`, id, oldStatus, input.Status, input.Actor, input.Note); err != nil {
+			return QueueItemDetail{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return QueueItemDetail{}, err
+	}
+	return s.hydrateQueueItemDetail(ctx, item)
+}
+
+func (s *Store) AddNote(ctx context.Context, queueItemID int64, author, body string) (ItemNote, error) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ItemNote{}, errors.New("note body is required")
+	}
+	row := s.db.QueryRowContext(ctx, `INSERT INTO item_notes (queue_item_id, author, body)
+		VALUES (?, ?, ?)
+		RETURNING id, queue_item_id, author, body, created_at`, queueItemID, strings.TrimSpace(author), body)
+	return scanNote(row)
 }
 
 func (s *Store) AddLink(ctx context.Context, queueItemID int64, rawURL string) (ItemLink, error) {
@@ -487,6 +553,65 @@ func (s *Store) ListFiles(ctx context.Context, queueItemID int64) ([]ItemFile, e
 	return files, rows.Err()
 }
 
+func (s *Store) ListNotes(ctx context.Context, queueItemID int64) ([]ItemNote, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, queue_item_id, author, body, created_at
+		FROM item_notes WHERE queue_item_id = ? ORDER BY created_at ASC, id ASC`, queueItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var notes []ItemNote
+	for rows.Next() {
+		note, err := scanNote(rows)
+		if err != nil {
+			return nil, err
+		}
+		notes = append(notes, note)
+	}
+	return notes, rows.Err()
+}
+
+func (s *Store) ListStatusEvents(ctx context.Context, queueItemID int64) ([]StatusEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, queue_item_id, old_status, new_status, actor, note, created_at
+		FROM status_events WHERE queue_item_id = ? ORDER BY created_at ASC, id ASC`, queueItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []StatusEvent
+	for rows.Next() {
+		event, err := scanStatusEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
+func (s *Store) hydrateQueueItemDetail(ctx context.Context, item QueueItem) (QueueItemDetail, error) {
+	var err error
+	item.Links, err = s.ListLinks(ctx, item.ID)
+	if err != nil {
+		return QueueItemDetail{}, err
+	}
+	item.Files, err = s.ListFiles(ctx, item.ID)
+	if err != nil {
+		return QueueItemDetail{}, err
+	}
+	notes, err := s.ListNotes(ctx, item.ID)
+	if err != nil {
+		return QueueItemDetail{}, err
+	}
+	events, err := s.ListStatusEvents(ctx, item.ID)
+	if err != nil {
+		return QueueItemDetail{}, err
+	}
+	return QueueItemDetail{QueueItem: item, Notes: notes, StatusEvents: events}, nil
+}
+
 func (s *Store) CreatePrinter(ctx context.Context, input PrinterInput) (Printer, error) {
 	if strings.TrimSpace(input.Name) == "" {
 		return Printer{}, errors.New("name is required")
@@ -530,6 +655,55 @@ func normalizeQueueInput(input *QueueItemInput) {
 	}
 	if input.Quantity < 1 {
 		input.Quantity = 1
+	}
+}
+
+func normalizeQueueUpdate(input *QueueItemUpdate) {
+	if input.Status == "" {
+		input.Status = StatusBacklog
+	}
+	if input.Priority == "" {
+		input.Priority = PriorityNormal
+	}
+	if input.Quantity < 1 {
+		input.Quantity = 1
+	}
+	input.Owner = strings.TrimSpace(input.Owner)
+	input.PrintingBy = strings.TrimSpace(input.PrintingBy)
+	input.Material = strings.TrimSpace(input.Material)
+	input.Color = strings.TrimSpace(input.Color)
+	input.Actor = strings.TrimSpace(input.Actor)
+	input.Note = strings.TrimSpace(input.Note)
+}
+
+func validateQueueValues(status QueueStatus, priority Priority, quantity int) error {
+	if !validQueueStatus(status) {
+		return errors.New("status must be backlog, queued, printing, blocked, done, or cancelled")
+	}
+	if !validPriority(priority) {
+		return errors.New("priority must be low, normal, high, or urgent")
+	}
+	if quantity < 1 {
+		return errors.New("quantity must be greater than zero")
+	}
+	return nil
+}
+
+func validQueueStatus(status QueueStatus) bool {
+	switch status {
+	case StatusBacklog, StatusQueued, StatusPrinting, StatusBlocked, StatusDone, StatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func validPriority(priority Priority) bool {
+	switch priority {
+	case PriorityLow, PriorityNormal, PriorityHigh, PriorityUrgent:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -706,6 +880,26 @@ func scanFile(row scanner) (ItemFile, error) {
 	}
 	file.CreatedAt = parseSQLiteTime(createdAt)
 	return file, nil
+}
+
+func scanNote(row scanner) (ItemNote, error) {
+	var note ItemNote
+	var createdAt string
+	if err := row.Scan(&note.ID, &note.QueueItemID, &note.Author, &note.Body, &createdAt); err != nil {
+		return ItemNote{}, err
+	}
+	note.CreatedAt = parseSQLiteTime(createdAt)
+	return note, nil
+}
+
+func scanStatusEvent(row scanner) (StatusEvent, error) {
+	var event StatusEvent
+	var createdAt string
+	if err := row.Scan(&event.ID, &event.QueueItemID, &event.OldStatus, &event.NewStatus, &event.Actor, &event.Note, &createdAt); err != nil {
+		return StatusEvent{}, err
+	}
+	event.CreatedAt = parseSQLiteTime(createdAt)
+	return event, nil
 }
 
 func scanPrinter(row scanner) (Printer, error) {

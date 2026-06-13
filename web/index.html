@@ -105,6 +105,26 @@
               <input name="color" placeholder="Black">
             </label>
           </div>
+          <div class="grid">
+            <label>
+              Quantity
+              <input name="quantity" type="number" min="1" value="1">
+            </label>
+            <label>
+              Printing by
+              <input name="printing_by" placeholder="A1 Mini">
+            </label>
+          </div>
+          <div class="grid">
+            <label>
+              Due date
+              <input name="due_at" type="date">
+            </label>
+            <label>
+              Estimate
+              <input name="estimated_minutes" type="number" min="1" placeholder="90">
+            </label>
+          </div>
           <label>
             Files
             <input name="files" type="file" multiple accept=".stl,.3mf,.gcode,.step,.stp,.obj,.zip,.png,.jpg,.jpeg,.webp">
@@ -135,6 +155,16 @@
           </div>
         </div>
         <div id="queue" class="queue"></div>
+      </section>
+
+      <section class="panel detail-panel">
+        <div class="section-head">
+          <h2>Detail</h2>
+          <button id="close-detail" class="secondary hidden" type="button">Close</button>
+        </div>
+        <div id="item-detail" class="detail-empty">
+          <p class="muted">Select a queue item.</p>
+        </div>
       </section>
 
       <section class="panel printer-panel">

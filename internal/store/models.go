@@ -78,6 +78,12 @@ type QueueItem struct {
 	Files            []ItemFile  `json:"files,omitempty"`
 }
 
+type QueueItemDetail struct {
+	QueueItem
+	Notes        []ItemNote    `json:"notes"`
+	StatusEvents []StatusEvent `json:"status_events"`
+}
+
 type QueueItemInput struct {
 	Title            string
 	Description      string
@@ -93,6 +99,38 @@ type QueueItemInput struct {
 	EstimatedMinutes *int
 	DueAt            *time.Time
 	ReprintOfID      *int64
+}
+
+type QueueItemUpdate struct {
+	Status           QueueStatus
+	Priority         Priority
+	Owner            string
+	PrintingBy       string
+	Quantity         int
+	Material         string
+	Color            string
+	EstimatedMinutes *int
+	DueAt            *time.Time
+	Actor            string
+	Note             string
+}
+
+type ItemNote struct {
+	ID          int64     `json:"id"`
+	QueueItemID int64     `json:"queue_item_id"`
+	Author      string    `json:"author"`
+	Body        string    `json:"body"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type StatusEvent struct {
+	ID          int64       `json:"id"`
+	QueueItemID int64       `json:"queue_item_id"`
+	OldStatus   QueueStatus `json:"old_status"`
+	NewStatus   QueueStatus `json:"new_status"`
+	Actor       string      `json:"actor"`
+	Note        string      `json:"note"`
+	CreatedAt   time.Time   `json:"created_at"`
 }
 
 type ItemLink struct {
