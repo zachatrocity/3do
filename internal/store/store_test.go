@@ -242,6 +242,55 @@ func TestNormalizeLinkRejectsInvalidURLs(t *testing.T) {
 	}
 }
 
+func TestLinkThumbnailStateRoundTrips(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	item, err := db.CreateQueueItem(ctx, QueueItemInput{Title: "Bracket"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	link, err := db.AddLink(ctx, item.ID, "https://www.thingiverse.com/thing:123")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checkedAt := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	updated, err := db.UpdateLinkThumbnail(ctx, link.ID, LinkThumbnailUpdate{
+		Title:                "Bracket preview",
+		PreviewImageURL:      "https://cdn.example.test/preview.jpg",
+		PreviewImageSource:   "og:image",
+		ThumbnailPath:        "thumbnails/1-preview.jpg",
+		ThumbnailContentType: "image/jpeg",
+		ThumbnailStatus:      "ready",
+		CheckedAt:            checkedAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Title != "Bracket preview" || updated.ThumbnailStatus != "ready" {
+		t.Fatalf("unexpected updated link: %+v", updated)
+	}
+	if updated.ThumbnailCheckedAt == nil || !updated.ThumbnailCheckedAt.Equal(checkedAt) {
+		t.Fatalf("expected checked_at to round trip, got %+v", updated.ThumbnailCheckedAt)
+	}
+
+	detail, err := db.GetQueueItem(ctx, item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Links) != 1 || detail.Links[0].PreviewImageURL == "" || detail.Links[0].ThumbnailPath == "" {
+		t.Fatalf("expected hydrated thumbnail metadata, got %+v", detail.Links)
+	}
+}
+
 func TestFileByChecksum(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(filepath.Join(t.TempDir(), "test.db"))

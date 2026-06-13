@@ -12,6 +12,8 @@ single-node app first: one web process, SQLite, and one documented data volume.
 - Upload handling for model/source files under `/data/uploads`.
 - External model links for Printables, MakerWorld, Thingiverse, GitHub, direct
   URLs, and other sources.
+- Cached preview thumbnails for supported external model links under
+  `/data/thumbnails`.
 - Dockerfile, Compose file, `.env.example`, and healthcheck.
 
 ## Paved-Road Deployment
@@ -93,6 +95,7 @@ Durable data lives in `./data` when using the included Compose file:
 
 - `./data/3do.db` - SQLite database
 - `./data/uploads/` - uploaded STL/3MF/G-code/source files
+- `./data/thumbnails/` - cached preview images for supported model links
 
 The container starts as root long enough to create `DATA_DIR`, `uploads/`, and
 the parent directory for `DATABASE_PATH`, then it tries to chown them and run the
@@ -119,10 +122,10 @@ startup stops with a clear permission error instead of a vague SQLite open
 failure. Set `PUID` and `PGID` to a user that can write the mounted host
 directory.
 
-Back up the entire `./data` directory. The database stores upload metadata and
-SHA-256 checksums, while the files themselves live under `./data/uploads`; keep
-those together when backing up or restoring. Do not treat the container
-filesystem as durable storage.
+Back up the entire `./data` directory. The database stores upload and thumbnail
+metadata, while the files themselves live under `./data/uploads` and
+`./data/thumbnails`; keep those together when backing up or restoring. Do not
+treat the container filesystem as durable storage.
 
 For a quiet backup, stop the container and copy `./data` as one unit:
 
@@ -133,9 +136,36 @@ docker compose up -d
 ```
 
 Restore by stopping the container, replacing `./data` with the backup contents,
-and starting the same or newer compatible 3do image. Never restore only
-`3do.db` without `uploads/`, or only `uploads/` without `3do.db`; that leaves the
-queue with broken file references or orphaned files.
+and starting the same or newer compatible 3do image. Never restore only `3do.db`
+without `uploads/` and `thumbnails/`, or only the file directories without
+`3do.db`; that leaves the queue with broken file references or orphaned files.
+
+## Model Link Thumbnails
+
+When a queue item is created with a supported model link, 3do makes a
+best-effort server-side request to discover a preview image from ordinary page
+metadata. Queue rendering never calls third-party providers; cards use the
+cached local image when one exists, and show a stable fallback when discovery is
+unsupported or unavailable.
+
+The fetch path is intentionally conservative:
+
+- only `http` and `https` URLs are fetched;
+- localhost, private, link-local, and unresolved hosts are rejected;
+- redirects are validated before response data is trusted;
+- page and image responses have byte limits and request timeouts;
+- downloaded images must be JPEG, PNG, WebP, or GIF;
+- the browser receives cached images from 3do instead of hotlinking provider
+  images directly.
+
+Provider behavior:
+
+| Provider | Status | Notes |
+| --- | --- | --- |
+| Thingiverse | Partially supported | Uses Open Graph/Twitter image metadata from the public model page. Works when the page exposes usable metadata and the image host passes SSRF and content-type checks. |
+| Printables | Partially supported | Uses Open Graph/Twitter image metadata from the public model page. This is the preferred low-maintenance path; no account-only API or brittle DOM scraping is used. |
+| MakerWorld | Partially supported | Uses Open Graph/Twitter image metadata from the public model page. Some pages may vary by locale, consent, or bot protection, so failures are recorded as unavailable rather than blocking queue creation. |
+| GitHub, direct URLs, other text | Not supported for automatic thumbnails | Links are still stored and displayed, but no thumbnail fetch is attempted. |
 
 ## Local Development
 
@@ -196,6 +226,7 @@ hashes of those tokens.
 - `DELETE /api/users/{id}` (admin)
 - `GET /api/queue-items`
 - `POST /api/queue-items`
+- `GET /api/link-thumbnails/{id}`
 - `GET /api/printers` (admin)
 - `POST /api/printers` (admin)
 

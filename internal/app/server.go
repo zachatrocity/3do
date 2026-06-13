@@ -18,6 +18,7 @@ import (
 	"github.com/zachatrocity/3do/internal/auth"
 	"github.com/zachatrocity/3do/internal/config"
 	"github.com/zachatrocity/3do/internal/store"
+	"github.com/zachatrocity/3do/internal/thumbnail"
 )
 
 const (
@@ -53,6 +54,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/queue-items/{id}", s.requireAuth(s.getQueueItem, false))
 	s.mux.HandleFunc("PATCH /api/queue-items/{id}", s.requireAuth(s.updateQueueItem, false))
 	s.mux.HandleFunc("POST /api/queue-items/{id}/notes", s.requireAuth(s.addQueueItemNote, false))
+	s.mux.HandleFunc("GET /api/link-thumbnails/{id}", s.requireAuth(s.getLinkThumbnail, false))
 	s.mux.HandleFunc("GET /api/printers", s.requireAuth(s.listPrinters, true))
 	s.mux.HandleFunc("POST /api/printers", s.requireAuth(s.createPrinter, true))
 	s.mux.Handle("/", http.FileServer(http.Dir("web")))
@@ -314,11 +316,9 @@ func (s *Server) createQueueItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	for _, link := range input.Links {
-		if _, err := s.store.AddLink(r.Context(), item.ID, link); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
+	if err := s.addLinks(r, item.ID, input.Links, true); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
 	}
 	items, _ := s.store.ListQueueItems(r.Context())
 	for _, current := range items {
@@ -356,12 +356,10 @@ func (s *Server) createQueueItemMultipart(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	for _, link := range input.Links {
-		if _, err := s.store.AddLink(r.Context(), item.ID, link); err != nil {
-			s.cleanupQueueItem(r, item.ID)
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
+	if err := s.addLinks(r, item.ID, input.Links, false); err != nil {
+		s.cleanupQueueItem(r, item.ID)
+		writeError(w, http.StatusBadRequest, err)
+		return
 	}
 
 	form := r.MultipartForm
@@ -374,6 +372,7 @@ func (s *Server) createQueueItemMultipart(w http.ResponseWriter, r *http.Request
 			}
 		}
 	}
+	s.fetchLinkThumbnails(r, item.ID)
 
 	items, _ := s.store.ListQueueItems(r.Context())
 	for _, current := range items {
@@ -383,6 +382,44 @@ func (s *Server) createQueueItemMultipart(w http.ResponseWriter, r *http.Request
 		}
 	}
 	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) addLinks(r *http.Request, itemID int64, links []string, fetchThumbnails bool) error {
+	for _, link := range links {
+		added, err := s.store.AddLink(r.Context(), itemID, link)
+		if err != nil {
+			return err
+		}
+		if fetchThumbnails {
+			s.fetchThumbnail(r, added)
+		}
+	}
+	return nil
+}
+
+func (s *Server) fetchLinkThumbnails(r *http.Request, itemID int64) {
+	links, err := s.store.ListLinks(r.Context(), itemID)
+	if err != nil {
+		return
+	}
+	for _, link := range links {
+		s.fetchThumbnail(r, link)
+	}
+}
+
+func (s *Server) fetchThumbnail(r *http.Request, link store.ItemLink) {
+	fetcher := thumbnail.Fetcher{ThumbnailDir: s.cfg.ThumbnailDir}
+	result := fetcher.Fetch(r.Context(), link.ID, link.URL, link.SourceType)
+	_, _ = s.store.UpdateLinkThumbnail(r.Context(), link.ID, store.LinkThumbnailUpdate{
+		Title:                result.Title,
+		PreviewImageURL:      result.ImageURL,
+		PreviewImageSource:   result.ImageSource,
+		ThumbnailPath:        result.Path,
+		ThumbnailContentType: result.ContentType,
+		ThumbnailStatus:      result.Status,
+		ThumbnailError:       result.Error,
+		CheckedAt:            result.CheckedAt,
+	})
 }
 
 func (s *Server) cleanupQueueItem(r *http.Request, itemID int64) {
@@ -433,6 +470,44 @@ func (s *Server) addQueueItemNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, note)
+}
+
+func (s *Server) getLinkThumbnail(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r.PathValue("id"), "link")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	link, err := s.store.GetLink(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	if link.ThumbnailStatus != thumbnail.StatusReady || strings.TrimSpace(link.ThumbnailPath) == "" {
+		writeError(w, http.StatusNotFound, errors.New("thumbnail is not available"))
+		return
+	}
+	path, err := safeDataPath(s.cfg.DataDir, link.ThumbnailPath)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	if link.ThumbnailContentType != "" {
+		w.Header().Set("Content-Type", link.ThumbnailContentType)
+	}
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)
 }
 
 func (s *Server) persistUpload(r *http.Request, itemID int64, header *multipart.FileHeader) error {
@@ -496,6 +571,28 @@ func (s *Server) persistUpload(r *http.Request, itemID int64, header *multipart.
 		_ = os.Remove(targetPath)
 	}
 	return err
+}
+
+func safeDataPath(dataDir, relativePath string) (string, error) {
+	if filepath.IsAbs(relativePath) {
+		return "", errors.New("thumbnail path must be relative")
+	}
+	clean := filepath.Clean(relativePath)
+	if clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || clean == ".." {
+		return "", errors.New("thumbnail path escapes data directory")
+	}
+	root, err := filepath.Abs(dataDir)
+	if err != nil {
+		return "", err
+	}
+	target, err := filepath.Abs(filepath.Join(root, clean))
+	if err != nil {
+		return "", err
+	}
+	if target != root && !strings.HasPrefix(target, root+string(filepath.Separator)) {
+		return "", errors.New("thumbnail path escapes data directory")
+	}
+	return target, nil
 }
 
 func (s *Server) listPrinters(w http.ResponseWriter, r *http.Request) {

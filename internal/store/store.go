@@ -93,6 +93,13 @@ func (s *Store) Migrate(ctx context.Context) error {
 			url TEXT NOT NULL,
 			source_type TEXT NOT NULL DEFAULT 'other',
 			title TEXT NOT NULL DEFAULT '',
+			preview_image_url TEXT NOT NULL DEFAULT '',
+			preview_image_source TEXT NOT NULL DEFAULT '',
+			thumbnail_path TEXT NOT NULL DEFAULT '',
+			thumbnail_content_type TEXT NOT NULL DEFAULT '',
+			thumbnail_status TEXT NOT NULL DEFAULT 'pending',
+			thumbnail_checked_at TEXT,
+			thumbnail_error TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS item_files (
@@ -136,6 +143,22 @@ func (s *Store) Migrate(ctx context.Context) error {
 	}
 	if err := s.addColumnIfMissing(ctx, "users", "password_hash", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
+	}
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{"preview_image_url", "TEXT NOT NULL DEFAULT ''"},
+		{"preview_image_source", "TEXT NOT NULL DEFAULT ''"},
+		{"thumbnail_path", "TEXT NOT NULL DEFAULT ''"},
+		{"thumbnail_content_type", "TEXT NOT NULL DEFAULT ''"},
+		{"thumbnail_status", "TEXT NOT NULL DEFAULT 'pending'"},
+		{"thumbnail_checked_at", "TEXT"},
+		{"thumbnail_error", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if err := s.addColumnIfMissing(ctx, "item_links", column.name, column.definition); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -496,12 +519,15 @@ func (s *Store) AddLink(ctx context.Context, queueItemID int64, rawURL string) (
 	}
 	row := s.db.QueryRowContext(ctx, `INSERT INTO item_links (queue_item_id, url, source_type)
 		VALUES (?, ?, ?)
-		RETURNING id, queue_item_id, url, source_type, title, created_at`, queueItemID, normalizedURL, sourceType)
+		RETURNING id, queue_item_id, url, source_type, title, preview_image_url, preview_image_source,
+			thumbnail_path, thumbnail_content_type, thumbnail_status, thumbnail_checked_at, thumbnail_error, created_at`, queueItemID, normalizedURL, sourceType)
 	return scanLink(row)
 }
 
 func (s *Store) ListLinks(ctx context.Context, queueItemID int64) ([]ItemLink, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, queue_item_id, url, source_type, title, created_at
+	rows, err := s.db.QueryContext(ctx, `SELECT id, queue_item_id, url, source_type, title, preview_image_url,
+		preview_image_source, thumbnail_path, thumbnail_content_type, thumbnail_status, thumbnail_checked_at,
+		thumbnail_error, created_at
 		FROM item_links WHERE queue_item_id = ? ORDER BY created_at ASC`, queueItemID)
 	if err != nil {
 		return nil, err
@@ -517,6 +543,36 @@ func (s *Store) ListLinks(ctx context.Context, queueItemID int64) ([]ItemLink, e
 		links = append(links, link)
 	}
 	return links, rows.Err()
+}
+
+func (s *Store) GetLink(ctx context.Context, id int64) (ItemLink, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, queue_item_id, url, source_type, title, preview_image_url,
+		preview_image_source, thumbnail_path, thumbnail_content_type, thumbnail_status, thumbnail_checked_at,
+		thumbnail_error, created_at
+		FROM item_links WHERE id = ?`, id)
+	return scanLink(row)
+}
+
+func (s *Store) UpdateLinkThumbnail(ctx context.Context, id int64, update LinkThumbnailUpdate) (ItemLink, error) {
+	if update.CheckedAt.IsZero() {
+		update.CheckedAt = time.Now().UTC()
+	}
+	row := s.db.QueryRowContext(ctx, `UPDATE item_links
+		SET title = COALESCE(NULLIF(?, ''), title),
+			preview_image_url = ?,
+			preview_image_source = ?,
+			thumbnail_path = ?,
+			thumbnail_content_type = ?,
+			thumbnail_status = ?,
+			thumbnail_checked_at = ?,
+			thumbnail_error = ?
+		WHERE id = ?
+		RETURNING id, queue_item_id, url, source_type, title, preview_image_url, preview_image_source,
+			thumbnail_path, thumbnail_content_type, thumbnail_status, thumbnail_checked_at, thumbnail_error, created_at`,
+		strings.TrimSpace(update.Title), update.PreviewImageURL, update.PreviewImageSource, update.ThumbnailPath,
+		update.ThumbnailContentType, update.ThumbnailStatus, update.CheckedAt.Format(time.RFC3339),
+		strings.TrimSpace(update.ThumbnailError), id)
+	return scanLink(row)
 }
 
 func (s *Store) AddFile(ctx context.Context, file ItemFile) (ItemFile, error) {
@@ -864,9 +920,18 @@ func scanQueueItem(row scanner) (QueueItem, error) {
 
 func scanLink(row scanner) (ItemLink, error) {
 	var link ItemLink
+	var checkedAt sql.NullString
 	var createdAt string
-	if err := row.Scan(&link.ID, &link.QueueItemID, &link.URL, &link.SourceType, &link.Title, &createdAt); err != nil {
+	if err := row.Scan(&link.ID, &link.QueueItemID, &link.URL, &link.SourceType, &link.Title,
+		&link.PreviewImageURL, &link.PreviewImageSource, &link.ThumbnailPath, &link.ThumbnailContentType,
+		&link.ThumbnailStatus, &checkedAt, &link.ThumbnailError, &createdAt); err != nil {
 		return ItemLink{}, err
+	}
+	if checkedAt.Valid {
+		parsed := parseSQLiteTime(checkedAt.String)
+		if !parsed.IsZero() {
+			link.ThumbnailCheckedAt = &parsed
+		}
 	}
 	link.CreatedAt = parseSQLiteTime(createdAt)
 	return link, nil

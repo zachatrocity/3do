@@ -302,6 +302,7 @@ func newTestServer(t *testing.T) http.Handler {
 		AppURL:        "http://example.test",
 		DataDir:       dataDir,
 		UploadDir:     filepath.Join(dataDir, "uploads"),
+		ThumbnailDir:  filepath.Join(dataDir, "thumbnails"),
 		UploadMaxSize: 1024 * 1024,
 		SessionSecret: "0123456789abcdef0123456789abcdef",
 	}, db)

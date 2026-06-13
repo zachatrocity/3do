@@ -198,6 +198,7 @@ function renderQueue() {
     const node = document.createElement("article");
     node.className = `item${selectedItemId === item.id ? " selected" : ""}`;
     node.innerHTML = `
+      ${renderItemThumbnail(item)}
       <div class="item-head">
         <div>
           <div class="item-title">${escapeHTML(item.title)}</div>
@@ -241,6 +242,7 @@ async function loadItemDetail(id) {
 function renderItemDetail(item) {
   itemDetailEl.className = "detail";
   itemDetailEl.innerHTML = `
+    ${renderItemThumbnail(item, "large")}
     <div class="detail-header">
       <div>
         <div class="item-title">${escapeHTML(item.title)}</div>
@@ -379,6 +381,47 @@ function renderLinks(links) {
   return `<div class="links">${links.map((link) => `<a href="${escapeAttr(link.url)}" target="_blank" rel="noreferrer">${escapeHTML(link.source_type || "Source")}: ${escapeHTML(link.url)}</a>`).join("")}</div>`;
 }
 
+function renderItemThumbnail(item, size = "") {
+  const link = preferredThumbnailLink(item.links || []);
+  const classes = ["thumbnail", size].filter(Boolean).join(" ");
+  if (link?.thumbnail_status === "ready") {
+    const alt = link.title || item.title || "Model preview";
+    return `
+      <div class="${classes}">
+        <img src="/api/link-thumbnails/${escapeAttr(link.id)}" alt="${escapeAttr(alt)}">
+      </div>
+    `;
+  }
+  const source = link?.source_type || firstSource(item.links || []) || "model";
+  const label = link?.thumbnail_status === "pending" ? "Loading preview" : "No preview";
+  return `
+    <div class="${classes} thumbnail-fallback" aria-label="${escapeAttr(label)}">
+      <span>${escapeHTML(sourceLabel(source))}</span>
+    </div>
+  `;
+}
+
+function preferredThumbnailLink(links) {
+  return links.find((link) => link.thumbnail_status === "ready") || links.find((link) => link.thumbnail_status);
+}
+
+function firstSource(links) {
+  const link = links.find((item) => item.source_type);
+  return link?.source_type;
+}
+
+function sourceLabel(source) {
+  const labels = {
+    thingiverse: "Thingiverse",
+    printables: "Printables",
+    makerworld: "MakerWorld",
+    github: "GitHub",
+    direct: "Direct",
+    other: "Model",
+  };
+  return labels[source] || "Model";
+}
+
 function renderFiles(files) {
   if (files.length === 0) return "";
   return `<div class="files">${files.map((file) => `<span>${escapeHTML(file.kind)}: ${escapeHTML(file.original_name)} (${formatBytes(file.size_bytes)})</span>`).join("")}</div>`;
@@ -421,7 +464,7 @@ function escapeHTML(value) {
 }
 
 function escapeAttr(value) {
-  return escapeHTML(value || "");
+  return escapeHTML(value ?? "");
 }
 
 function payloadFromForm(form) {
