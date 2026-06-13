@@ -54,6 +54,38 @@ h2 {
   color: var(--muted);
 }
 
+.hidden {
+  display: none !important;
+}
+
+.session-area,
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.session-area span {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.session-area button,
+.toolbar button {
+  width: auto;
+}
+
+.auth-layout {
+  display: grid;
+  place-items: start center;
+  padding: 48px 18px;
+}
+
+.auth-panel {
+  width: min(100%, 420px);
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(280px, 380px) minmax(420px, 1fr);
@@ -77,9 +109,14 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.users-panel {
+  grid-column: 1 / -1;
+}
+
 form,
 .queue,
-.printers {
+.printers,
+.users {
   display: grid;
   gap: 12px;
 }
@@ -114,6 +151,10 @@ textarea {
   resize: vertical;
 }
 
+input[type="checkbox"] {
+  width: auto;
+}
+
 button {
   cursor: pointer;
   border-color: var(--accent);
@@ -127,10 +168,28 @@ button:hover {
   background: var(--accent-strong);
 }
 
+button.secondary {
+  border-color: var(--line);
+  background: #ffffff;
+  color: var(--danger);
+}
+
+button.secondary:hover {
+  border-color: #d7988f;
+  background: #fff7f6;
+}
+
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
 }
 
 .section-head,
@@ -146,13 +205,20 @@ button:hover {
 }
 
 .item,
-.printer {
+.printer,
+.user-row {
   display: grid;
   gap: 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 14px;
   background: #fbfcfd;
+}
+
+.user-create-form,
+.user-row {
+  grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.2fr) minmax(170px, 1fr) minmax(120px, 0.7fr) auto auto auto;
+  align-items: center;
 }
 
 .item-head {
@@ -227,7 +293,20 @@ a {
 
   .grid,
   .inline-form,
+  .user-create-form,
+  .user-row,
   .section-head {
     grid-template-columns: 1fr;
+  }
+
+  .session-area,
+  .toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .session-area button,
+  .toolbar button {
+    width: 100%;
   }
 }

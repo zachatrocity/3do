@@ -12,10 +12,48 @@
         <h1>3do</h1>
         <p>Self-hosted 3D print queue</p>
       </div>
-      <button id="refresh" type="button">Refresh</button>
+      <div id="session-area" class="session-area"></div>
     </header>
 
-    <main class="layout">
+    <main id="auth-view" class="auth-layout hidden">
+      <section class="panel auth-panel" id="login-panel">
+        <h2>Sign in</h2>
+        <form id="login-form">
+          <label>
+            Email
+            <input name="email" type="email" required autocomplete="email">
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" required autocomplete="current-password">
+          </label>
+          <button type="submit">Sign in</button>
+          <p id="login-status" class="form-status"></p>
+        </form>
+      </section>
+
+      <section class="panel auth-panel hidden" id="bootstrap-panel">
+        <h2>Create admin</h2>
+        <form id="bootstrap-form">
+          <label>
+            Display name
+            <input name="display_name" required autocomplete="name">
+          </label>
+          <label>
+            Email
+            <input name="email" type="email" required autocomplete="email">
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" required minlength="12" autocomplete="new-password">
+          </label>
+          <button type="submit">Create admin</button>
+          <p id="bootstrap-status" class="form-status"></p>
+        </form>
+      </section>
+    </main>
+
+    <main id="app-view" class="layout hidden">
       <section class="panel create-panel">
         <h2>Add print</h2>
         <form id="item-form">
@@ -83,15 +121,18 @@
       <section class="panel queue-panel">
         <div class="section-head">
           <h2>Queue</h2>
-          <select id="status-filter" aria-label="Filter by status">
-            <option value="">All statuses</option>
-            <option value="backlog">Backlog</option>
-            <option value="queued">Queued</option>
-            <option value="printing">Printing</option>
-            <option value="blocked">Blocked</option>
-            <option value="done">Done</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <div class="toolbar">
+            <select id="status-filter" aria-label="Filter by status">
+              <option value="">All statuses</option>
+              <option value="backlog">Backlog</option>
+              <option value="queued">Queued</option>
+              <option value="printing">Printing</option>
+              <option value="blocked">Blocked</option>
+              <option value="done">Done</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <button id="refresh" type="button">Refresh</button>
+          </div>
         </div>
         <div id="queue" class="queue"></div>
       </section>
@@ -104,6 +145,26 @@
           <button type="submit">Add</button>
         </form>
         <div id="printers" class="printers"></div>
+      </section>
+
+      <section class="panel users-panel hidden" id="users-panel">
+        <h2>Users</h2>
+        <form id="user-form" class="user-create-form">
+          <input name="display_name" required placeholder="Display name">
+          <input name="email" type="email" required placeholder="email@example.com">
+          <input name="password" type="password" required minlength="12" placeholder="Temporary password">
+          <select name="role">
+            <option value="member">Member</option>
+            <option value="admin">Admin</option>
+          </select>
+          <label class="checkbox-label">
+            <input name="active" type="checkbox" checked>
+            Active
+          </label>
+          <button type="submit">Add user</button>
+        </form>
+        <p id="user-status" class="form-status"></p>
+        <div id="users" class="users"></div>
       </section>
     </main>
 

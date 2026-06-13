@@ -38,11 +38,19 @@ func (s *Store) Migrate(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY,
 			display_name TEXT NOT NULL,
-			email TEXT NOT NULL DEFAULT '',
+			email TEXT NOT NULL,
+			password_hash TEXT NOT NULL DEFAULT '',
 			role TEXT NOT NULL DEFAULT 'member',
 			active INTEGER NOT NULL DEFAULT 1,
 			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			CHECK (role IN ('admin', 'member'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS sessions (
+			token_hash TEXT PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			expires_at TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS printers (
 			id INTEGER PRIMARY KEY,
@@ -115,13 +123,226 @@ func (s *Store) Migrate(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS queue_items_status_idx ON queue_items(status)`,
 		`CREATE INDEX IF NOT EXISTS queue_items_printer_idx ON queue_items(printer_id)`,
 		`CREATE INDEX IF NOT EXISTS item_files_checksum_idx ON item_files(checksum)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_idx ON users(lower(email))`,
+		`CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id)`,
+		`CREATE INDEX IF NOT EXISTS sessions_expires_idx ON sessions(expires_at)`,
 	}
 	for _, statement := range statements {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
 			return err
 		}
 	}
+	if err := s.addColumnIfMissing(ctx, "users", "password_hash", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *Store) addColumnIfMissing(ctx context.Context, table, column, definition string) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return rows.Err()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition))
+	return err
+}
+
+func (s *Store) UserCount(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&count)
+	return count, err
+}
+
+func (s *Store) BootstrapAdmin(ctx context.Context, input UserInput) (User, error) {
+	input.Role = RoleAdmin
+	input.Active = true
+	normalizeUserInput(&input)
+	if err := validateUserInput(input, true); err != nil {
+		return User{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback()
+
+	var count int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		return User{}, err
+	}
+	if count > 0 {
+		return User{}, errors.New("admin bootstrap is already complete")
+	}
+	row := tx.QueryRowContext(ctx, `INSERT INTO users (display_name, email, password_hash, role, active)
+		VALUES (?, ?, ?, ?, ?)
+		RETURNING id, display_name, email, password_hash, role, active, created_at, updated_at`,
+		input.DisplayName, input.Email, input.PasswordHash, input.Role, boolInt(input.Active))
+	user, err := scanUser(row)
+	if err != nil {
+		return User{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return User{}, err
+	}
+	return user, nil
+}
+
+func (s *Store) CreateUser(ctx context.Context, input UserInput) (User, error) {
+	normalizeUserInput(&input)
+	if err := validateUserInput(input, true); err != nil {
+		return User{}, err
+	}
+	row := s.db.QueryRowContext(ctx, `INSERT INTO users (display_name, email, password_hash, role, active)
+		VALUES (?, ?, ?, ?, ?)
+		RETURNING id, display_name, email, password_hash, role, active, created_at, updated_at`,
+		input.DisplayName, input.Email, input.PasswordHash, input.Role, boolInt(input.Active))
+	return scanUser(row)
+}
+
+func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, display_name, email, password_hash, role, active, created_at, updated_at
+		FROM users ORDER BY active DESC, display_name ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		user, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
+}
+
+func (s *Store) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, display_name, email, password_hash, role, active, created_at, updated_at
+		FROM users WHERE lower(email) = lower(?)`, strings.TrimSpace(email))
+	return scanUser(row)
+}
+
+func (s *Store) GetUserByID(ctx context.Context, id int64) (User, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, display_name, email, password_hash, role, active, created_at, updated_at
+		FROM users WHERE id = ?`, id)
+	return scanUser(row)
+}
+
+func (s *Store) UpdateUser(ctx context.Context, id int64, input UserUpdate) (User, error) {
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	if input.Role == "" {
+		input.Role = RoleMember
+	}
+	if strings.TrimSpace(input.DisplayName) == "" {
+		return User{}, errors.New("display_name is required")
+	}
+	if strings.TrimSpace(input.Email) == "" {
+		return User{}, errors.New("email is required")
+	}
+	if !validRole(input.Role) {
+		return User{}, errors.New("role must be admin or member")
+	}
+	if err := s.ensureAdminCanChange(ctx, id, input.Role, input.Active); err != nil {
+		return User{}, err
+	}
+	if input.PasswordHash == "" {
+		row := s.db.QueryRowContext(ctx, `UPDATE users
+			SET display_name = ?, email = ?, role = ?, active = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?
+			RETURNING id, display_name, email, password_hash, role, active, created_at, updated_at`,
+			input.DisplayName, input.Email, input.Role, boolInt(input.Active), id)
+		return scanUser(row)
+	}
+	row := s.db.QueryRowContext(ctx, `UPDATE users
+		SET display_name = ?, email = ?, password_hash = ?, role = ?, active = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+		RETURNING id, display_name, email, password_hash, role, active, created_at, updated_at`,
+		input.DisplayName, input.Email, input.PasswordHash, input.Role, boolInt(input.Active), id)
+	return scanUser(row)
+}
+
+func (s *Store) DeleteUser(ctx context.Context, id int64) error {
+	if err := s.ensureAdminCanChange(ctx, id, RoleMember, false); err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) ensureAdminCanChange(ctx context.Context, id int64, nextRole UserRole, nextActive bool) error {
+	var currentRole UserRole
+	var currentActive int
+	if err := s.db.QueryRowContext(ctx, `SELECT role, active FROM users WHERE id = ?`, id).Scan(&currentRole, &currentActive); err != nil {
+		return err
+	}
+	if currentRole != RoleAdmin || currentActive != 1 || (nextRole == RoleAdmin && nextActive) {
+		return nil
+	}
+	var otherAdmins int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE id != ? AND role = ? AND active = 1`, id, RoleAdmin).Scan(&otherAdmins); err != nil {
+		return err
+	}
+	if otherAdmins == 0 {
+		return errors.New("at least one active admin is required")
+	}
+	return nil
+}
+
+func (s *Store) CreateSession(ctx context.Context, tokenHash string, userID int64, expiresAt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions (token_hash, user_id, expires_at)
+		VALUES (?, ?, ?)`, tokenHash, userID, expiresAt.Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, tokenHash)
+	return err
+}
+
+func (s *Store) SessionUser(ctx context.Context, tokenHash string, now time.Time) (User, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT users.id, users.display_name, users.email, users.password_hash,
+		users.role, users.active, users.created_at, users.updated_at
+		FROM sessions
+		JOIN users ON users.id = sessions.user_id
+		WHERE sessions.token_hash = ? AND sessions.expires_at > ? AND users.active = 1`,
+		tokenHash, now.Format(time.RFC3339))
+	return scanUser(row)
+}
+
+func (s *Store) PruneExpiredSessions(ctx context.Context, now time.Time) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at <= ?`, now.Format(time.RFC3339))
+	return err
 }
 
 func (s *Store) CreateQueueItem(ctx context.Context, input QueueItemInput) (QueueItem, error) {
@@ -287,6 +508,37 @@ func normalizeQueueInput(input *QueueItemInput) {
 	}
 }
 
+func normalizeUserInput(input *UserInput) {
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	if input.Role == "" {
+		input.Role = RoleMember
+	}
+}
+
+func validateUserInput(input UserInput, requirePassword bool) error {
+	if input.DisplayName == "" {
+		return errors.New("display_name is required")
+	}
+	if input.Email == "" {
+		return errors.New("email is required")
+	}
+	if !strings.Contains(input.Email, "@") {
+		return errors.New("email must be valid")
+	}
+	if !validRole(input.Role) {
+		return errors.New("role must be admin or member")
+	}
+	if requirePassword && input.PasswordHash == "" {
+		return errors.New("password_hash is required")
+	}
+	return nil
+}
+
+func validRole(role UserRole) bool {
+	return role == RoleAdmin || role == RoleMember
+}
+
 func detectSourceType(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -406,6 +658,19 @@ func scanPrinter(row scanner) (Printer, error) {
 	printer.CreatedAt = parseSQLiteTime(createdAt)
 	printer.UpdatedAt = parseSQLiteTime(updatedAt)
 	return printer, nil
+}
+
+func scanUser(row scanner) (User, error) {
+	var user User
+	var active int
+	var createdAt, updatedAt string
+	if err := row.Scan(&user.ID, &user.DisplayName, &user.Email, &user.PasswordHash, &user.Role, &active, &createdAt, &updatedAt); err != nil {
+		return User{}, err
+	}
+	user.Active = active == 1
+	user.CreatedAt = parseSQLiteTime(createdAt)
+	user.UpdatedAt = parseSQLiteTime(updatedAt)
+	return user, nil
 }
 
 func timePtrString(value *time.Time) any {
