@@ -339,6 +339,7 @@ func (s *Server) createQueueItemMultipart(w http.ResponseWriter, r *http.Request
 	}
 	for _, link := range input.Links {
 		if _, err := s.store.AddLink(r.Context(), item.ID, link); err != nil {
+			s.cleanupQueueItem(r, item.ID)
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
@@ -348,6 +349,7 @@ func (s *Server) createQueueItemMultipart(w http.ResponseWriter, r *http.Request
 	if form != nil {
 		for _, header := range form.File["files"] {
 			if err := s.persistUpload(r, item.ID, header); err != nil {
+				s.cleanupQueueItem(r, item.ID)
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -364,9 +366,17 @@ func (s *Server) createQueueItemMultipart(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusCreated, item)
 }
 
+func (s *Server) cleanupQueueItem(r *http.Request, itemID int64) {
+	_ = s.store.DeleteQueueItem(r.Context(), itemID)
+	_ = os.RemoveAll(filepath.Join(s.cfg.UploadDir, strconv.FormatInt(itemID, 10)))
+}
+
 func (s *Server) persistUpload(r *http.Request, itemID int64, header *multipart.FileHeader) error {
+	if strings.TrimSpace(header.Filename) == "" {
+		return errors.New("upload filename is required")
+	}
 	if !store.AllowedUpload(header.Filename) {
-		return fmt.Errorf("unsupported upload type: %s", header.Filename)
+		return fmt.Errorf("unsupported upload type for %q; allowed: .stl, .3mf, .gcode, .step, .stp, .obj, .zip, .png, .jpg, .jpeg, .webp", header.Filename)
 	}
 	file, err := header.Open()
 	if err != nil {
@@ -389,10 +399,24 @@ func (s *Server) persistUpload(r *http.Request, itemID int64, header *multipart.
 	hasher := sha256.New()
 	written, err := io.Copy(io.MultiWriter(out, hasher), file)
 	if err != nil {
+		_ = os.Remove(targetPath)
+		return err
+	}
+	if written == 0 {
+		_ = os.Remove(targetPath)
+		return fmt.Errorf("upload %q is empty", header.Filename)
+	}
+	checksum := hex.EncodeToString(hasher.Sum(nil))
+	if existing, err := s.store.FileByChecksum(r.Context(), checksum); err == nil {
+		_ = os.Remove(targetPath)
+		return fmt.Errorf("duplicate upload %q matches existing file %q", header.Filename, existing.OriginalName)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		_ = os.Remove(targetPath)
 		return err
 	}
 	relativePath, err := filepath.Rel(s.cfg.DataDir, targetPath)
 	if err != nil {
+		_ = os.Remove(targetPath)
 		return err
 	}
 	_, err = s.store.AddFile(r.Context(), store.ItemFile{
@@ -400,10 +424,13 @@ func (s *Server) persistUpload(r *http.Request, itemID int64, header *multipart.
 		StoragePath:  relativePath,
 		OriginalName: header.Filename,
 		SizeBytes:    written,
-		Checksum:     hex.EncodeToString(hasher.Sum(nil)),
+		Checksum:     checksum,
 		ContentType:  header.Header.Get("Content-Type"),
 		Kind:         store.DetectFileKind(header.Filename),
 	})
+	if err != nil {
+		_ = os.Remove(targetPath)
+	}
 	return err
 }
 

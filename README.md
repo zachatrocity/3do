@@ -33,8 +33,23 @@ Durable data lives in `./data` when using the included Compose file:
 - `./data/3do.db` - SQLite database
 - `./data/uploads/` - uploaded STL/3MF/G-code/source files
 
-Back up the entire `./data` directory. Do not treat the container filesystem as
-durable storage.
+Back up the entire `./data` directory. The database stores upload metadata and
+SHA-256 checksums, while the files themselves live under `./data/uploads`; keep
+those together when backing up or restoring. Do not treat the container
+filesystem as durable storage.
+
+For a quiet backup, stop the container and copy `./data` as one unit:
+
+```sh
+docker compose down
+tar -czf 3do-data-backup.tgz data
+docker compose up -d
+```
+
+Restore by stopping the container, replacing `./data` with the backup contents,
+and starting the same or newer compatible 3do image. Never restore only
+`3do.db` without `uploads/`, or only `uploads/` without `3do.db`; that leaves the
+queue with broken file references or orphaned files.
 
 ## Local Development
 
