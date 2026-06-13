@@ -3,6 +3,8 @@ const authView = document.querySelector("#auth-view");
 const loginPanel = document.querySelector("#login-panel");
 const bootstrapPanel = document.querySelector("#bootstrap-panel");
 const sessionArea = document.querySelector("#session-area");
+const dashboardEl = document.querySelector("#dashboard");
+const adminUsersLink = document.querySelector("#admin-users-link");
 const queueEl = document.querySelector("#queue");
 const printersEl = document.querySelector("#printers");
 const usersPanel = document.querySelector("#users-panel");
@@ -21,6 +23,7 @@ const bootstrapStatus = document.querySelector("#bootstrap-status");
 const userStatus = document.querySelector("#user-status");
 
 let queueItems = [];
+let currentPrinters = [];
 let currentUser = null;
 let selectedItemId = null;
 
@@ -60,6 +63,7 @@ function showApp() {
   authView.classList.add("hidden");
   appView.classList.remove("hidden");
   usersPanel.classList.toggle("hidden", currentUser?.role !== "admin");
+  adminUsersLink.classList.toggle("hidden", currentUser?.role !== "admin");
   sessionArea.innerHTML = `
     <span>${escapeHTML(currentUser.display_name)}</span>
     <button id="logout" type="button">Sign out</button>
@@ -77,10 +81,102 @@ async function refresh() {
   }
   const [items, printers, users] = await Promise.all(requests);
   queueItems = items || [];
+  currentPrinters = printers || [];
+  renderDashboard();
   renderQueue();
   if (selectedItemId) await loadItemDetail(selectedItemId);
-  renderPrinters(printers || []);
+  renderPrinters(currentPrinters);
   if (currentUser?.role === "admin") renderUsers(users || []);
+}
+
+function renderDashboard() {
+  const active = queueItems.filter((item) => item.status === "printing");
+  const queued = queueItems.filter((item) => item.status === "queued");
+  const backlog = queueItems.filter((item) => item.status === "backlog");
+  const blocked = queueItems.filter((item) => item.status === "blocked");
+  const done = queueItems.filter((item) => item.status === "done");
+  const open = queueItems.filter((item) => !["done", "cancelled"].includes(item.status));
+  const availablePrinters = currentPrinters.filter((printer) => printer.active && !String(printer.status || "").toLowerCase().includes("offline"));
+  const recentDone = sortRecent(done).slice(0, 3);
+  const nextUp = [...queued, ...backlog].slice(0, 5);
+
+  dashboardEl.innerHTML = `
+    <div class="metric-grid">
+      ${metricCard("Printing", active.length, "Jobs currently on a printer", "status-printing")}
+      ${metricCard("Queued", queued.length, "Ready to start", "status-queued")}
+      ${metricCard("Blocked", blocked.length, "Needs attention", "status-blocked")}
+      ${metricCard("Open", open.length, "Total unfinished requests", "")}
+    </div>
+    <div class="dashboard-grid">
+      ${dashboardSection("Active prints", active, "Nothing is printing right now.")}
+      ${dashboardSection("Needs attention", blocked, "No blocked queue items.")}
+      ${dashboardSection("Up next", nextUp, "No queued or backlog items.")}
+      <section class="dashboard-card">
+        <div class="card-head">
+          <h3>Printer context</h3>
+          ${currentUser?.role === "admin" ? `<a href="#printers">Manage</a>` : ""}
+        </div>
+        <div class="printer-summary">
+          <strong>${availablePrinters.length}</strong>
+          <span>${availablePrinters.length === 1 ? "active printer" : "active printers"}</span>
+        </div>
+        ${renderPrinterPills(currentPrinters.slice(0, 5))}
+      </section>
+      ${dashboardSection("Recently completed", recentDone, "No completed prints yet.")}
+    </div>
+  `;
+}
+
+function metricCard(label, value, detail, statusClass) {
+  return `
+    <article class="metric-card">
+      <span class="metric-label">${escapeHTML(label)}</span>
+      <strong>${escapeHTML(value)}</strong>
+      <span class="metric-detail ${statusClass}">${escapeHTML(detail)}</span>
+    </article>
+  `;
+}
+
+function dashboardSection(title, items, emptyText) {
+  return `
+    <section class="dashboard-card">
+      <div class="card-head">
+        <h3>${escapeHTML(title)}</h3>
+        ${items.length > 0 ? `<span>${items.length}</span>` : ""}
+      </div>
+      <div class="dashboard-list">
+        ${items.length === 0 ? `<p class="muted">${escapeHTML(emptyText)}</p>` : items.slice(0, 5).map(renderDashboardItem).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderDashboardItem(item) {
+  return `
+    <button class="dashboard-item" type="button" data-item-id="${escapeAttr(item.id)}">
+      <span>
+        <strong>${escapeHTML(item.title)}</strong>
+        <small>${escapeHTML(itemSubtitle(item))}</small>
+      </span>
+      <span class="badge status-${item.status}">${escapeHTML(item.status)}</span>
+    </button>
+  `;
+}
+
+function itemSubtitle(item) {
+  return [item.priority, item.printing_by || item.owner || item.requested_by, formatDue(item.due_at)]
+    .filter(Boolean)
+    .join(" - ");
+}
+
+function renderPrinterPills(items) {
+  if (items.length === 0) return `<p class="muted">No printers have been added.</p>`;
+  return `<div class="printer-pills">${items.map((printer) => `
+    <span>
+      <strong>${escapeHTML(printer.name)}</strong>
+      ${escapeHTML(printer.status || "unknown")}
+    </span>
+  `).join("")}</div>`;
 }
 
 function renderQueue() {
@@ -120,6 +216,10 @@ function renderQueue() {
     node.querySelector(".view-detail").addEventListener("click", () => loadItemDetail(item.id));
     queueEl.appendChild(node);
   }
+}
+
+function sortRecent(items) {
+  return [...items].sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
 }
 
 async function loadItemDetail(id) {
@@ -300,6 +400,13 @@ function formatDateTime(value) {
   return date.toLocaleString();
 }
 
+function formatDue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `Due ${date.toLocaleDateString()}`;
+}
+
 function escapeHTML(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
@@ -478,6 +585,12 @@ async function deleteUser(event) {
 }
 
 statusFilter.addEventListener("change", renderQueue);
+dashboardEl.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-item-id]");
+  if (!button) return;
+  loadItemDetail(button.dataset.itemId);
+  itemDetailEl.scrollIntoView({ behavior: "smooth", block: "start" });
+});
 closeDetailButton.addEventListener("click", () => {
   selectedItemId = null;
   closeDetailButton.classList.add("hidden");
