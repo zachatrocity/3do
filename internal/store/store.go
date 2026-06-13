@@ -17,6 +17,8 @@ type Store struct {
 	db *sql.DB
 }
 
+var ErrNotFound = sql.ErrNoRows
+
 func Open(path string) (*Store, error) {
 	db, err := sql.Open("sqlite3", path+"?_foreign_keys=on&_busy_timeout=5000")
 	if err != nil {
@@ -370,6 +372,21 @@ func (s *Store) CreateQueueItem(ctx context.Context, input QueueItemInput) (Queu
 	return item, nil
 }
 
+func (s *Store) DeleteQueueItem(ctx context.Context, id int64) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM queue_items WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) GetQueueItem(ctx context.Context, id int64) (QueueItemDetail, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, title, description, status, priority, requested_by, owner, printing_by,
 		printer_id, quantity, material, color, estimated_minutes, due_at, reprint_of_id, created_at, updated_at
@@ -470,14 +487,16 @@ func (s *Store) AddNote(ctx context.Context, queueItemID int64, author, body str
 }
 
 func (s *Store) AddLink(ctx context.Context, queueItemID int64, rawURL string) (ItemLink, error) {
-	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" {
+	normalizedURL, sourceType, err := NormalizeLink(rawURL)
+	if err != nil {
+		return ItemLink{}, err
+	}
+	if normalizedURL == "" {
 		return ItemLink{}, errors.New("url is required")
 	}
-	sourceType := detectSourceType(rawURL)
 	row := s.db.QueryRowContext(ctx, `INSERT INTO item_links (queue_item_id, url, source_type)
 		VALUES (?, ?, ?)
-		RETURNING id, queue_item_id, url, source_type, title, created_at`, queueItemID, rawURL, sourceType)
+		RETURNING id, queue_item_id, url, source_type, title, created_at`, queueItemID, normalizedURL, sourceType)
 	return scanLink(row)
 }
 
@@ -506,6 +525,12 @@ func (s *Store) AddFile(ctx context.Context, file ItemFile) (ItemFile, error) {
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, queue_item_id, storage_path, original_name, size_bytes, checksum, content_type, kind, created_at`,
 		file.QueueItemID, file.StoragePath, file.OriginalName, file.SizeBytes, file.Checksum, file.ContentType, file.Kind)
+	return scanFile(row)
+}
+
+func (s *Store) FileByChecksum(ctx context.Context, checksum string) (ItemFile, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, queue_item_id, storage_path, original_name, size_bytes, checksum, content_type, kind, created_at
+		FROM item_files WHERE checksum = ? ORDER BY created_at ASC LIMIT 1`, checksum)
 	return scanFile(row)
 }
 
@@ -713,26 +738,62 @@ func validRole(role UserRole) bool {
 	return role == RoleAdmin || role == RoleMember
 }
 
-func detectSourceType(rawURL string) string {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "other"
+func NormalizeLink(rawURL string) (string, string, error) {
+	value := strings.TrimSpace(rawURL)
+	if value == "" {
+		return "", "", errors.New("url is required")
 	}
+
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return "", "", fmt.Errorf("url is invalid: %w", err)
+	}
+	isURLLike := parsed.Scheme != "" || strings.Contains(parsed.Path, ".")
+	if isURLLike && strings.ContainsAny(value, " \t\r\n") {
+		return "", "", errors.New("url must not contain whitespace")
+	}
+	if parsed.Scheme == "" && strings.Contains(parsed.Path, ".") {
+		parsed, err = url.Parse("https://" + value)
+		if err != nil {
+			return "", "", fmt.Errorf("url is invalid: %w", err)
+		}
+	}
+	sourceType := detectSourceType(parsed)
+	if parsed.Scheme == "" {
+		return value, sourceType, nil
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", "", errors.New("url must use http or https")
+	}
+	if parsed.Hostname() == "" {
+		return "", "", errors.New("url host is required")
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	parsed.Host = strings.ToLower(parsed.Host)
+	parsed.Fragment = ""
+	return parsed.String(), sourceType, nil
+}
+
+func detectSourceType(parsed *url.URL) string {
 	host := strings.ToLower(parsed.Hostname())
 	switch {
-	case strings.Contains(host, "printables.com"):
+	case hostMatches(host, "printables.com"):
 		return "printables"
-	case strings.Contains(host, "makerworld.com"):
+	case hostMatches(host, "makerworld.com"):
 		return "makerworld"
-	case strings.Contains(host, "thingiverse.com"):
+	case hostMatches(host, "thingiverse.com"):
 		return "thingiverse"
-	case strings.Contains(host, "github.com"):
+	case hostMatches(host, "github.com"):
 		return "github"
 	case parsed.Scheme == "http" || parsed.Scheme == "https":
 		return "direct"
 	default:
 		return "other"
 	}
+}
+
+func hostMatches(host, domain string) bool {
+	return host == domain || strings.HasSuffix(host, "."+domain)
 }
 
 func DetectFileKind(name string) string {
