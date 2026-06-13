@@ -93,6 +93,30 @@ h2 {
   padding: 18px;
 }
 
+.dashboard-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 16px;
+}
+
+.dashboard-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dashboard-head h2 {
+  font-size: 24px;
+}
+
+.dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -184,6 +208,24 @@ button:hover {
   background: var(--accent-strong);
 }
 
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.button-link:hover {
+  background: var(--accent-strong);
+}
+
 button.secondary {
   border-color: var(--line);
   background: #ffffff;
@@ -193,6 +235,17 @@ button.secondary {
 button.secondary:hover {
   border-color: #d7988f;
   background: #fff7f6;
+}
+
+.secondary-link {
+  border-color: var(--line);
+  background: #ffffff;
+  color: var(--accent-strong);
+}
+
+.secondary-link:hover {
+  border-color: #adc5c0;
+  background: #f4fbfa;
 }
 
 .grid {
@@ -229,6 +282,145 @@ button.secondary:hover {
   border-radius: var(--radius);
   padding: 14px;
   background: #fbfcfd;
+}
+
+.dashboard {
+  display: grid;
+  gap: 16px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.metric-card,
+.dashboard-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.metric-card {
+  padding: 14px;
+}
+
+.metric-card strong {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.metric-label,
+.metric-detail,
+.dashboard-item small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.dashboard-card {
+  align-content: start;
+  padding: 14px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.card-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.card-head span,
+.card-head a {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dashboard-list {
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  border-color: var(--line);
+  background: #fbfcfd;
+  color: var(--text);
+  text-align: left;
+}
+
+.dashboard-item:hover {
+  border-color: #adc5c0;
+  background: #f4fbfa;
+}
+
+.dashboard-item span:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.dashboard-item strong,
+.dashboard-item small {
+  overflow-wrap: anywhere;
+}
+
+.printer-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.printer-summary strong {
+  font-size: 28px;
+}
+
+.printer-summary span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.printer-pills {
+  display: grid;
+  gap: 7px;
+}
+
+.printer-pills span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfd;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.printer-pills strong {
+  color: var(--text);
 }
 
 .item.selected {
@@ -360,6 +552,10 @@ a {
     grid-template-columns: minmax(280px, 360px) minmax(420px, 1fr);
   }
 
+  .dashboard-grid {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+
   .detail-panel {
     grid-column: 1 / -1;
   }
@@ -387,5 +583,23 @@ a {
   .session-area button,
   .toolbar button {
     width: 100%;
+  }
+
+  .dashboard-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dashboard-actions {
+    justify-content: stretch;
+  }
+
+  .button-link {
+    flex: 1 1 150px;
+  }
+
+  .metric-grid,
+  .dashboard-grid {
+    grid-template-columns: 1fr;
   }
 }

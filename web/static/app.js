@@ -4,10 +4,10 @@ const loginPanel = document.querySelector("#login-panel");
 const bootstrapPanel = document.querySelector("#bootstrap-panel");
 const sessionArea = document.querySelector("#session-area");
 const dashboardEl = document.querySelector("#dashboard");
-const adminLink = document.querySelector("#admin-link");
-const queueEl = document.querySelector("#queue-list");
+const adminUsersLink = document.querySelector("#admin-users-link");
+const queueEl = document.querySelector("#queue");
 const printersEl = document.querySelector("#printers");
-const adminPanel = document.querySelector("#admin-panel");
+const usersPanel = document.querySelector("#users-panel");
 const usersEl = document.querySelector("#users");
 const itemDetailEl = document.querySelector("#item-detail");
 const closeDetailButton = document.querySelector("#close-detail");
@@ -62,8 +62,8 @@ function showAuth(bootstrapRequired) {
 function showApp() {
   authView.classList.add("hidden");
   appView.classList.remove("hidden");
-  adminPanel.classList.toggle("hidden", currentUser?.role !== "admin");
-  adminLink.classList.toggle("hidden", currentUser?.role !== "admin");
+  usersPanel.classList.toggle("hidden", currentUser?.role !== "admin");
+  adminUsersLink.classList.toggle("hidden", currentUser?.role !== "admin");
   sessionArea.innerHTML = `
     <span>${escapeHTML(currentUser.display_name)}</span>
     <button id="logout" class="secondary" type="button">Sign out</button>
@@ -96,7 +96,10 @@ function renderDashboard() {
   const open = queueItems.filter((i) => !["done", "cancelled"].includes(i.status));
   const done = queueItems.filter((i) => i.status === "done");
   const recentDone = sortRecent(done).slice(0, 3);
-  const nextUp = [...queued, ...queueItems.filter(i => i.status === "backlog")].slice(0, 5);
+  const backlog = queueItems.filter(i => i.status === "backlog");
+  const nextUp = [...queued, ...backlog].slice(0, 5);
+
+  const availablePrinters = currentPrinters.filter((p) => p.active && !String(p.status || "").toLowerCase().includes("offline"));
 
   dashboardEl.innerHTML = `
     <div class="metric-grid">
@@ -107,8 +110,19 @@ function renderDashboard() {
     </div>
     <div class="dashboard-grid">
       ${dashboardSection("Current Prints", active, "Nothing is printing.")}
-      ${dashboardSection("Blocked Items", blocked, "No blockers.")}
+      ${dashboardSection("Needs Attention", blocked, "No blocked items.")}
       ${dashboardSection("Up Next", nextUp, "Queue is empty.")}
+      <section class="dashboard-card">
+        <div class="card-head">
+          <h3>Printers</h3>
+          ${currentUser?.role === "admin" ? `<a href="#printers">Manage</a>` : ""}
+        </div>
+        <div class="printer-summary">
+          <strong>${availablePrinters.length}</strong>
+          <span>active</span>
+        </div>
+        ${renderPrinterPills(currentPrinters.slice(0, 5))}
+      </section>
       ${dashboardSection("Recent Activity", recentDone, "No recent completions.")}
     </div>
   `;
@@ -152,6 +166,16 @@ function renderDashboardItem(item) {
 
 function itemSubtitle(item) {
   return [item.priority, item.printing_by || item.owner, formatDue(item.due_at)].filter(Boolean).join(" • ");
+}
+
+function renderPrinterPills(items) {
+  if (items.length === 0) return `<p class="muted">No printers added.</p>`;
+  return `<div class="printer-pills">${items.map((printer) => `
+    <span>
+      <strong>${escapeHTML(printer.name)}</strong>
+      ${escapeHTML(printer.status || "unknown")}
+    </span>
+  `).join("")}</div>`;
 }
 
 function renderQueue() {
