@@ -1,0 +1,8 @@
+.DS_Store
+/bin/
+/3do
+/data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*

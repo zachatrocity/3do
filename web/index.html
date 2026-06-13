@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>3do</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>3do</h1>
+        <p>Self-hosted 3D print queue</p>
+      </div>
+      <button id="refresh" type="button">Refresh</button>
+    </header>
+
+    <main class="layout">
+      <section class="panel create-panel">
+        <h2>Add print</h2>
+        <form id="item-form">
+          <label>
+            Title
+            <input name="title" required placeholder="Gridfinity bins">
+          </label>
+          <label>
+            Links
+            <textarea name="links" rows="3" placeholder="https://www.printables.com/..."></textarea>
+          </label>
+          <div class="grid">
+            <label>
+              Status
+              <select name="status">
+                <option value="backlog">Backlog</option>
+                <option value="queued">Queued</option>
+                <option value="printing">Printing</option>
+                <option value="blocked">Blocked</option>
+              </select>
+            </label>
+            <label>
+              Priority
+              <select name="priority">
+                <option value="normal">Normal</option>
+                <option value="low">Low</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid">
+            <label>
+              Requested by
+              <input name="requested_by" placeholder="Zach">
+            </label>
+            <label>
+              Owner
+              <input name="owner" placeholder="Shop">
+            </label>
+          </div>
+          <div class="grid">
+            <label>
+              Material
+              <input name="material" placeholder="PLA">
+            </label>
+            <label>
+              Color
+              <input name="color" placeholder="Black">
+            </label>
+          </div>
+          <label>
+            Files
+            <input name="files" type="file" multiple accept=".stl,.3mf,.gcode,.step,.stp,.obj,.zip,.png,.jpg,.jpeg,.webp">
+          </label>
+          <label>
+            Notes
+            <textarea name="description" rows="3"></textarea>
+          </label>
+          <button type="submit">Add to queue</button>
+          <p id="form-status" class="form-status"></p>
+        </form>
+      </section>
+
+      <section class="panel queue-panel">
+        <div class="section-head">
+          <h2>Queue</h2>
+          <select id="status-filter" aria-label="Filter by status">
+            <option value="">All statuses</option>
+            <option value="backlog">Backlog</option>
+            <option value="queued">Queued</option>
+            <option value="printing">Printing</option>
+            <option value="blocked">Blocked</option>
+            <option value="done">Done</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div id="queue" class="queue"></div>
+      </section>
+
+      <section class="panel printer-panel">
+        <h2>Printers</h2>
+        <form id="printer-form" class="inline-form">
+          <input name="name" required placeholder="Prusa MK4">
+          <input name="location" placeholder="Garage">
+          <button type="submit">Add</button>
+        </form>
+        <div id="printers" class="printers"></div>
+      </section>
+    </main>
+
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>
