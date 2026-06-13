@@ -196,12 +196,13 @@ hashes of those tokens.
 - `DELETE /api/users/{id}` (admin)
 - `GET /api/queue-items`
 - `POST /api/queue-items`
-- `GET /api/printers`
-- `POST /api/printers`
+- `GET /api/printers` (admin)
+- `POST /api/printers` (admin)
 
 `POST /api/queue-items` accepts either JSON or multipart form data. Multipart
 uploads can include repeated `files` fields plus newline-separated `links`.
-Queue, printer, and user-management APIs require an active session.
+Queue APIs require an active session. Printer and user-management APIs require
+an active admin session.
 
 ## Next Build Steps
 

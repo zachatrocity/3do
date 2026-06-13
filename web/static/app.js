@@ -5,7 +5,7 @@ const bootstrapPanel = document.querySelector("#bootstrap-panel");
 const sessionArea = document.querySelector("#session-area");
 const queueEl = document.querySelector("#queue");
 const printersEl = document.querySelector("#printers");
-const usersPanel = document.querySelector("#users-panel");
+const adminPanel = document.querySelector("#admin-panel");
 const usersEl = document.querySelector("#users");
 const itemDetailEl = document.querySelector("#item-detail");
 const closeDetailButton = document.querySelector("#close-detail");
@@ -59,7 +59,7 @@ function showAuth(bootstrapRequired) {
 function showApp() {
   authView.classList.add("hidden");
   appView.classList.remove("hidden");
-  usersPanel.classList.toggle("hidden", currentUser?.role !== "admin");
+  adminPanel.classList.toggle("hidden", currentUser?.role !== "admin");
   sessionArea.innerHTML = `
     <span>${escapeHTML(currentUser.display_name)}</span>
     <button id="logout" type="button">Sign out</button>
@@ -70,17 +70,18 @@ function showApp() {
 async function refresh() {
   const requests = [
     api("/api/queue-items"),
-    api("/api/printers"),
   ];
   if (currentUser?.role === "admin") {
-    requests.push(api("/api/users"));
+    requests.push(api("/api/printers"), api("/api/users"));
   }
   const [items, printers, users] = await Promise.all(requests);
   queueItems = items || [];
   renderQueue();
   if (selectedItemId) await loadItemDetail(selectedItemId);
-  renderPrinters(printers || []);
-  if (currentUser?.role === "admin") renderUsers(users || []);
+  if (currentUser?.role === "admin") {
+    renderPrinters(printers || []);
+    renderUsers(users || []);
+  }
 }
 
 function renderQueue() {

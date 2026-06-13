@@ -167,34 +167,38 @@
         </div>
       </section>
 
-      <section class="panel printer-panel">
-        <h2>Printers</h2>
-        <form id="printer-form" class="inline-form">
-          <input name="name" required placeholder="Prusa MK4">
-          <input name="location" placeholder="Garage">
-          <button type="submit">Add</button>
-        </form>
-        <div id="printers" class="printers"></div>
-      </section>
+      <section class="panel admin-panel hidden" id="admin-panel">
+        <h2>Admin</h2>
 
-      <section class="panel users-panel hidden" id="users-panel">
-        <h2>Users</h2>
-        <form id="user-form" class="user-create-form">
-          <input name="display_name" required placeholder="Display name">
-          <input name="email" type="email" required placeholder="email@example.com">
-          <input name="password" type="password" required minlength="12" placeholder="Temporary password">
-          <select name="role">
-            <option value="member">Member</option>
-            <option value="admin">Admin</option>
-          </select>
-          <label class="checkbox-label">
-            <input name="active" type="checkbox" checked>
-            Active
-          </label>
-          <button type="submit">Add user</button>
-        </form>
-        <p id="user-status" class="form-status"></p>
-        <div id="users" class="users"></div>
+        <section class="admin-section">
+          <h3>Printers</h3>
+          <form id="printer-form" class="inline-form">
+            <input name="name" required placeholder="Prusa MK4">
+            <input name="location" placeholder="Garage">
+            <button type="submit">Add</button>
+          </form>
+          <div id="printers" class="printers"></div>
+        </section>
+
+        <section class="admin-section">
+          <h3>Users</h3>
+          <form id="user-form" class="user-create-form">
+            <input name="display_name" required placeholder="Display name">
+            <input name="email" type="email" required placeholder="email@example.com">
+            <input name="password" type="password" required minlength="12" placeholder="Temporary password">
+            <select name="role">
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+            <label class="checkbox-label">
+              <input name="active" type="checkbox" checked>
+              Active
+            </label>
+            <button type="submit">Add user</button>
+          </form>
+          <p id="user-status" class="form-status"></p>
+          <div id="users" class="users"></div>
+        </section>
       </section>
     </main>
 
