@@ -16,12 +16,71 @@ single-node app first: one web process, SQLite, and one documented data volume.
 
 ## Paved-Road Deployment
 
+### Build from source
+
 ```sh
 cp .env.example .env
 secret="$(openssl rand -base64 32)"
 sed -i.bak "s|^SESSION_SECRET=$|SESSION_SECRET=${secret}|" .env
 rm .env.bak
 docker compose up -d --build
+```
+
+### Run the published image
+
+Published images are available from GHCR as `ghcr.io/zachatrocity/3do`.
+
+Useful tags:
+
+- `edge` - latest image from the default branch.
+- `swe-2-scaffold-3do` - default branch image.
+- `sha-<short-sha>` - immutable image for a specific commit.
+- `latest` - default branch only.
+- `vX.Y.Z` - release tag builds.
+
+Pull and run the default-branch image:
+
+```sh
+docker pull ghcr.io/zachatrocity/3do:edge
+mkdir -p data
+docker run -d \
+  --name 3do \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -e APP_URL=http://localhost:8080 \
+  -e ADDR=:8080 \
+  -e DATA_DIR=/data \
+  -e DATABASE_PATH=/data/3do.db \
+  -e UPLOAD_MAX_MB=512 \
+  -e SESSION_SECRET="$(openssl rand -base64 32)" \
+  -v "$PWD/data:/data" \
+  ghcr.io/zachatrocity/3do:edge
+```
+
+Or use Compose with the published image:
+
+```yaml
+services:
+  3do:
+    image: ghcr.io/zachatrocity/3do:edge
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      APP_URL: http://localhost:8080
+      ADDR: :8080
+      DATA_DIR: /data
+      DATABASE_PATH: /data/3do.db
+      UPLOAD_MAX_MB: "512"
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET to at least 32 characters}
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "/app/3do", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 ```
 
 Open `http://localhost:8080` and create the first admin account. The bootstrap
