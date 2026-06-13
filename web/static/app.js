@@ -1,5 +1,6 @@
 const appView = document.querySelector("#app-view");
 const authView = document.querySelector("#auth-view");
+const detailView = document.querySelector("#detail-view");
 const loginPanel = document.querySelector("#login-panel");
 const bootstrapPanel = document.querySelector("#bootstrap-panel");
 const sessionArea = document.querySelector("#session-area");
@@ -9,8 +10,8 @@ const queueEl = document.querySelector("#queue");
 const printersEl = document.querySelector("#printers");
 const usersPanel = document.querySelector("#users-panel");
 const usersEl = document.querySelector("#users");
-const itemDetailEl = document.querySelector("#item-detail");
-const closeDetailButton = document.querySelector("#close-detail");
+const itemDetailEl = document.querySelector("#item-detail-content");
+const backToAppButton = document.querySelector("#back-to-app");
 const itemForm = document.querySelector("#item-form");
 const printerForm = document.querySelector("#printer-form");
 const userForm = document.querySelector("#user-form");
@@ -54,6 +55,7 @@ async function loadSession() {
 function showAuth(bootstrapRequired) {
   authView.classList.remove("hidden");
   appView.classList.add("hidden");
+  detailView.classList.add("hidden");
   loginPanel.classList.toggle("hidden", bootstrapRequired);
   bootstrapPanel.classList.toggle("hidden", !bootstrapRequired);
   sessionArea.innerHTML = "";
@@ -61,6 +63,7 @@ function showAuth(bootstrapRequired) {
 
 function showApp() {
   authView.classList.add("hidden");
+  detailView.classList.add("hidden");
   appView.classList.remove("hidden");
   usersPanel.classList.toggle("hidden", currentUser?.role !== "admin");
   adminUsersLink.classList.toggle("hidden", currentUser?.role !== "admin");
@@ -71,10 +74,19 @@ function showApp() {
   document.querySelector("#logout").addEventListener("click", logout);
 }
 
+function showDetail() {
+  authView.classList.add("hidden");
+  appView.classList.add("hidden");
+  detailView.classList.remove("hidden");
+}
+
 async function refresh() {
   const requests = [api("/api/queue-items")];
   if (currentUser?.role === "admin") {
     requests.push(api("/api/printers"), api("/api/users"));
+  } else {
+    // If not admin, we might still want printers for the dashboard context
+    requests.push(api("/api/printers"));
   }
   const [items, printers, users] = await Promise.all(requests);
   queueItems = items || [];
@@ -219,9 +231,8 @@ function renderQueue() {
 
 async function loadItemDetail(id) {
   selectedItemId = Number(id);
-  closeDetailButton.classList.remove("hidden");
   itemDetailEl.innerHTML = `<p class="muted">Loading item details...</p>`;
-  renderQueue();
+  showDetail();
   try {
     const item = await api(`/api/queue-items/${selectedItemId}`);
     renderItemDetail(item);
@@ -231,52 +242,78 @@ async function loadItemDetail(id) {
 }
 
 function renderItemDetail(item) {
-  itemDetailEl.className = "detail";
   itemDetailEl.innerHTML = `
-    <div class="detail-header">
-      <div>
-        <div class="item-title">${escapeHTML(item.title)}</div>
-        <p class="muted">${escapeHTML(item.requested_by || "No requester")}</p>
+    <div class="detail-main">
+      <div class="detail-header">
+        <div>
+          <div class="item-title">${escapeHTML(item.title)}</div>
+          <p class="muted">Requested by ${escapeHTML(item.requested_by || "Unknown")}</p>
+        </div>
+        <div class="badges">
+          <span class="badge status-${item.status}">${escapeHTML(item.status)}</span>
+          <span class="badge">${escapeHTML(item.priority)}</span>
+        </div>
       </div>
-      <span class="badge status-${item.status}">${escapeHTML(item.status)}</span>
+      
+      <section class="subsection">
+        <h3>Description</h3>
+        <p>${escapeHTML(item.description || "No notes on the request.")}</p>
+      </section>
+
+      ${item.links?.length > 0 ? `
+        <section class="subsection">
+          <h3>Links</h3>
+          ${renderLinks(item.links)}
+        </section>
+      ` : ""}
+
+      ${item.files?.length > 0 ? `
+        <section class="subsection">
+          <h3>Files</h3>
+          ${renderFiles(item.files)}
+        </section>
+      ` : ""}
+
+      <section class="subsection">
+        <h3>Activity & Notes</h3>
+        <form id="note-form">
+          <textarea name="body" rows="3" required placeholder="Add a comment..."></textarea>
+          <button type="submit">Post note</button>
+        </form>
+        <div class="timeline">${renderNotes(item.notes || [])}</div>
+      </section>
+
+      <section class="subsection">
+        <h3>Status History</h3>
+        <div class="timeline">${renderStatusEvents(item.status_events || [])}</div>
+      </section>
     </div>
-    <p>${escapeHTML(item.description || "No notes on the request.")}</p>
-    ${renderLinks(item.links || [])}
-    ${renderFiles(item.files || [])}
-    <form id="detail-form" class="detail-form">
-      <div class="grid">
-        ${selectField("status", "Status", item.status, ["backlog", "queued", "printing", "blocked", "done", "cancelled"])}
-        ${selectField("priority", "Priority", item.priority, ["low", "normal", "high", "urgent"])}
+
+    <aside class="detail-sidebar">
+      <div class="panel">
+        <h3>Manage Status</h3>
+        <form id="detail-form" class="detail-form">
+          <div class="grid">
+            ${selectField("status", "Status", item.status, ["backlog", "queued", "printing", "blocked", "done", "cancelled"])}
+            ${selectField("priority", "Priority", item.priority, ["low", "normal", "high", "urgent"])}
+          </div>
+          <label>Owner<input name="owner" value="${escapeAttr(item.owner)}"></label>
+          <label>Printing by<input name="printing_by" value="${escapeAttr(item.printing_by)}"></label>
+          <div class="grid">
+            <label>Material<input name="material" value="${escapeAttr(item.material)}"></label>
+            <label>Color<input name="color" value="${escapeAttr(item.color)}"></label>
+          </div>
+          <div class="grid">
+            <label>Quantity<input name="quantity" type="number" min="1" value="${escapeAttr(item.quantity || 1)}"></label>
+            <label>Estimate (min)<input name="estimated_minutes" type="number" min="1" value="${escapeAttr(item.estimated_minutes || "")}"></label>
+          </div>
+          <label>Due date<input name="due_at" type="date" value="${escapeAttr(formatDateInput(item.due_at))}"></label>
+          <label>Status note<textarea name="status_note" rows="2" placeholder="Brief reason for the status change"></textarea></label>
+          <button type="submit">Update item</button>
+          <p id="detail-status" class="form-status"></p>
+        </form>
       </div>
-      <div class="grid">
-        <label>Owner<input name="owner" value="${escapeAttr(item.owner)}"></label>
-        <label>Printing by<input name="printing_by" value="${escapeAttr(item.printing_by)}"></label>
-      </div>
-      <div class="grid">
-        <label>Material<input name="material" value="${escapeAttr(item.material)}"></label>
-        <label>Color<input name="color" value="${escapeAttr(item.color)}"></label>
-      </div>
-      <div class="grid">
-        <label>Quantity<input name="quantity" type="number" min="1" value="${escapeAttr(item.quantity || 1)}"></label>
-        <label>Estimate (min)<input name="estimated_minutes" type="number" min="1" value="${escapeAttr(item.estimated_minutes || "")}"></label>
-      </div>
-      <label>Due date<input name="due_at" type="date" value="${escapeAttr(formatDateInput(item.due_at))}"></label>
-      <label>Status note<textarea name="status_note" rows="2" placeholder="Brief reason for the status change"></textarea></label>
-      <button type="submit">Update item</button>
-      <p id="detail-status" class="form-status"></p>
-    </form>
-    <section class="subsection">
-      <h3>Notes</h3>
-      <form id="note-form">
-        <textarea name="body" rows="3" required placeholder="Add a comment..."></textarea>
-        <button type="submit">Post note</button>
-      </form>
-      <div class="timeline">${renderNotes(item.notes || [])}</div>
-    </section>
-    <section class="subsection">
-      <h3>Status History</h3>
-      <div class="timeline">${renderStatusEvents(item.status_events || [])}</div>
-    </section>
+    </aside>
   `;
   document.querySelector("#detail-form").addEventListener("submit", saveItemDetail);
   document.querySelector("#note-form").addEventListener("submit", addItemNote);
@@ -588,13 +625,10 @@ dashboardEl.addEventListener("click", (event) => {
   const button = event.target.closest("[data-item-id]");
   if (!button) return;
   loadItemDetail(button.dataset.itemId);
-  itemDetailEl.scrollIntoView({ behavior: "smooth", block: "start" });
 });
-closeDetailButton.addEventListener("click", () => {
+backToAppButton.addEventListener("click", () => {
   selectedItemId = null;
-  closeDetailButton.classList.add("hidden");
-  itemDetailEl.className = "detail-empty";
-  itemDetailEl.innerHTML = `<p class="muted">Select a queue item.</p>`;
+  showApp();
   renderQueue();
 });
 document.querySelector("#refresh").addEventListener("click", () => {

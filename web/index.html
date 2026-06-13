@@ -172,16 +172,6 @@
         <div id="queue" class="queue"></div>
       </section>
 
-      <section class="panel detail-panel">
-        <div class="section-head">
-          <h2>Detail</h2>
-          <button id="close-detail" class="secondary hidden" type="button">Close</button>
-        </div>
-        <div id="item-detail" class="detail-empty">
-          <p class="muted">Select a queue item.</p>
-        </div>
-      </section>
-
       <section class="panel printer-panel">
         <h2>Printers</h2>
         <form id="printer-form" class="inline-form">
@@ -211,6 +201,15 @@
         <p id="user-status" class="form-status"></p>
         <div id="users" class="users"></div>
       </section>
+    </main>
+
+    <main id="detail-view" class="detail-layout hidden">
+      <nav class="detail-nav">
+        <button id="back-to-app" class="secondary" type="button">← Back to queue</button>
+      </nav>
+      <div id="item-detail-content" class="detail-grid">
+        <!-- Rendered by JS -->
+      </div>
     </main>
 
     <script src="/static/app.js" type="module"></script>
