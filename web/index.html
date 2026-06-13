@@ -54,6 +54,21 @@
     </main>
 
     <main id="app-view" class="layout hidden">
+      <section class="dashboard-panel" aria-labelledby="dashboard-title">
+        <div class="dashboard-head">
+          <div>
+            <h2 id="dashboard-title">Queue dashboard</h2>
+            <p class="muted">Current print work, blockers, and the next requests to pull.</p>
+          </div>
+          <div class="dashboard-actions">
+            <a class="button-link" href="#item-form">Add print</a>
+            <a class="button-link secondary-link" href="#queue">View queue</a>
+            <a id="admin-users-link" class="button-link secondary-link hidden" href="#admin-panel">Admin</a>
+          </div>
+        </div>
+        <div id="dashboard" class="dashboard"></div>
+      </section>
+
       <section class="panel create-panel">
         <h2>Add print</h2>
         <form id="item-form">
@@ -70,7 +85,7 @@
               Status
               <select name="status">
                 <option value="backlog">Backlog</option>
-                <option value="queued">Queued</option>
+                <option value="queued" selected>Queued</option>
                 <option value="printing">Printing</option>
                 <option value="blocked">Blocked</option>
               </select>
@@ -78,7 +93,7 @@
             <label>
               Priority
               <select name="priority">
-                <option value="normal">Normal</option>
+                <option value="normal" selected>Normal</option>
                 <option value="low">Low</option>
                 <option value="high">High</option>
                 <option value="urgent">Urgent</option>
@@ -151,7 +166,7 @@
               <option value="done">Done</option>
               <option value="cancelled">Cancelled</option>
             </select>
-            <button id="refresh" type="button">Refresh</button>
+            <button id="refresh" class="secondary" type="button">Refresh</button>
           </div>
         </div>
         <div id="queue" class="queue"></div>
