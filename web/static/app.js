@@ -7,7 +7,7 @@ const dashboardEl = document.querySelector("#dashboard");
 const adminUsersLink = document.querySelector("#admin-users-link");
 const queueEl = document.querySelector("#queue");
 const printersEl = document.querySelector("#printers");
-const usersPanel = document.querySelector("#users-panel");
+const adminPanel = document.querySelector("#admin-panel");
 const usersEl = document.querySelector("#users");
 const itemDetailEl = document.querySelector("#item-detail");
 const closeDetailButton = document.querySelector("#close-detail");
@@ -62,7 +62,7 @@ function showAuth(bootstrapRequired) {
 function showApp() {
   authView.classList.add("hidden");
   appView.classList.remove("hidden");
-  usersPanel.classList.toggle("hidden", currentUser?.role !== "admin");
+  adminPanel.classList.toggle("hidden", currentUser?.role !== "admin");
   adminUsersLink.classList.toggle("hidden", currentUser?.role !== "admin");
   sessionArea.innerHTML = `
     <span>${escapeHTML(currentUser.display_name)}</span>
@@ -78,8 +78,8 @@ async function refresh() {
   }
   const [items, printers, users] = await Promise.all(requests);
   queueItems = items || [];
-  currentPrinters = printers || [];
-  
+  currentPrinters = currentUser?.role === "admin" ? printers || [] : [];
+
   renderDashboard();
   renderQueue();
   if (selectedItemId) await loadItemDetail(selectedItemId);
@@ -99,7 +99,7 @@ function renderDashboard() {
   const backlog = queueItems.filter(i => i.status === "backlog");
   const nextUp = [...queued, ...backlog].slice(0, 5);
 
-  const availablePrinters = currentPrinters.filter((p) => p.active && !String(p.status || "").toLowerCase().includes("offline"));
+  const adminPrinterCard = currentUser?.role === "admin" ? renderPrinterDashboardCard() : "";
 
   dashboardEl.innerHTML = `
     <div class="metric-grid">
@@ -112,19 +112,27 @@ function renderDashboard() {
       ${dashboardSection("Current Prints", active, "Nothing is printing.")}
       ${dashboardSection("Needs Attention", blocked, "No blocked items.")}
       ${dashboardSection("Up Next", nextUp, "Queue is empty.")}
-      <section class="dashboard-card">
-        <div class="card-head">
-          <h3>Printers</h3>
-          ${currentUser?.role === "admin" ? `<a href="#printers">Manage</a>` : ""}
-        </div>
-        <div class="printer-summary">
-          <strong>${availablePrinters.length}</strong>
-          <span>active</span>
-        </div>
-        ${renderPrinterPills(currentPrinters.slice(0, 5))}
-      </section>
+      ${adminPrinterCard}
       ${dashboardSection("Recent Activity", recentDone, "No recent completions.")}
     </div>
+  `;
+}
+
+function renderPrinterDashboardCard() {
+  const availablePrinters = currentPrinters.filter((p) => p.active && !String(p.status || "").toLowerCase().includes("offline"));
+
+  return `
+    <section class="dashboard-card">
+      <div class="card-head">
+        <h3>Printers</h3>
+        <a href="#printers">Manage</a>
+      </div>
+      <div class="printer-summary">
+        <strong>${availablePrinters.length}</strong>
+        <span>active</span>
+      </div>
+      ${renderPrinterPills(currentPrinters.slice(0, 5))}
+    </section>
   `;
 }
 

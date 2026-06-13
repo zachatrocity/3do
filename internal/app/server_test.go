@@ -88,30 +88,41 @@ func TestMemberCannotManageUsers(t *testing.T) {
 	handler := newTestServer(t)
 	adminCookie := bootstrapAdmin(t, handler)
 
-	user := map[string]any{
-		"display_name": "Member",
-		"email":        "member@example.com",
-		"password":     "correct horse battery staple",
-		"role":         "member",
-	}
-	resp := requestJSON(t, handler, http.MethodPost, "/api/users", user, adminCookie)
-	if resp.Code != http.StatusCreated {
-		t.Fatalf("expected member create to succeed, got %d: %s", resp.Code, resp.Body.String())
-	}
+	memberCookie := createAndLoginMember(t, handler, adminCookie)
 
-	login := map[string]any{
-		"email":    "member@example.com",
-		"password": "correct horse battery staple",
-	}
-	resp = requestJSON(t, handler, http.MethodPost, "/api/login", login, nil)
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected member login to succeed, got %d: %s", resp.Code, resp.Body.String())
-	}
-	memberCookie := sessionCookieFrom(t, resp)
-
-	resp = requestJSON(t, handler, http.MethodGet, "/api/users", nil, memberCookie)
+	resp := requestJSON(t, handler, http.MethodGet, "/api/users", nil, memberCookie)
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("expected member user listing to be forbidden, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestPrinterManagementRequiresAdmin(t *testing.T) {
+	handler := newTestServer(t)
+	adminCookie := bootstrapAdmin(t, handler)
+	memberCookie := createAndLoginMember(t, handler, adminCookie)
+
+	printer := map[string]any{
+		"name":     "Voron",
+		"location": "Bench",
+	}
+	resp := requestJSON(t, handler, http.MethodPost, "/api/printers", printer, memberCookie)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected member printer create to be forbidden, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	resp = requestJSON(t, handler, http.MethodGet, "/api/printers", nil, memberCookie)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected member printer listing to be forbidden, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	resp = requestJSON(t, handler, http.MethodPost, "/api/printers", printer, adminCookie)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected admin printer create to succeed, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	resp = requestJSON(t, handler, http.MethodGet, "/api/printers", nil, adminCookie)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected admin printer listing to succeed, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
 
@@ -305,6 +316,30 @@ func bootstrapAdmin(t *testing.T, handler http.Handler) *http.Cookie {
 	}, nil)
 	if resp.Code != http.StatusCreated {
 		t.Fatalf("expected bootstrap to succeed, got %d: %s", resp.Code, resp.Body.String())
+	}
+	return sessionCookieFrom(t, resp)
+}
+
+func createAndLoginMember(t *testing.T, handler http.Handler, adminCookie *http.Cookie) *http.Cookie {
+	t.Helper()
+	user := map[string]any{
+		"display_name": "Member",
+		"email":        "member@example.com",
+		"password":     "correct horse battery staple",
+		"role":         "member",
+	}
+	resp := requestJSON(t, handler, http.MethodPost, "/api/users", user, adminCookie)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected member create to succeed, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	login := map[string]any{
+		"email":    "member@example.com",
+		"password": "correct horse battery staple",
+	}
+	resp = requestJSON(t, handler, http.MethodPost, "/api/login", login, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected member login to succeed, got %d: %s", resp.Code, resp.Body.String())
 	}
 	return sessionCookieFrom(t, resp)
 }

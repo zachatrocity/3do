@@ -53,8 +53,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/queue-items/{id}", s.requireAuth(s.getQueueItem, false))
 	s.mux.HandleFunc("PATCH /api/queue-items/{id}", s.requireAuth(s.updateQueueItem, false))
 	s.mux.HandleFunc("POST /api/queue-items/{id}/notes", s.requireAuth(s.addQueueItemNote, false))
-	s.mux.HandleFunc("GET /api/printers", s.requireAuth(s.listPrinters, false))
-	s.mux.HandleFunc("POST /api/printers", s.requireAuth(s.createPrinter, false))
+	s.mux.HandleFunc("GET /api/printers", s.requireAuth(s.listPrinters, true))
+	s.mux.HandleFunc("POST /api/printers", s.requireAuth(s.createPrinter, true))
 	s.mux.Handle("/", http.FileServer(http.Dir("web")))
 }
 
