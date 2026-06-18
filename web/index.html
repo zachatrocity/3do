@@ -7,17 +7,11 @@
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
-    <header class="topbar">
-      <div>
-        <h1>3do</h1>
-        <p>Self-hosted 3D print queue</p>
-      </div>
-      <div id="session-area" class="session-area"></div>
-    </header>
-
-    <main id="auth-view" class="auth-layout hidden">
-      <section class="panel auth-panel" id="login-panel">
-        <h2>Sign in</h2>
+    <main id="auth-view" class="auth-screen hidden" aria-live="polite">
+      <section class="auth-card" id="login-panel">
+        <div class="brand-mark">3do</div>
+        <h1>Workshop access</h1>
+        <p>Sign in to run the print queue.</p>
         <form id="login-form">
           <label>
             Email
@@ -32,8 +26,10 @@
         </form>
       </section>
 
-      <section class="panel auth-panel hidden" id="bootstrap-panel">
-        <h2>Create admin</h2>
+      <section class="auth-card hidden" id="bootstrap-panel">
+        <div class="brand-mark">3do</div>
+        <h1>Create admin</h1>
+        <p>Initialize the first workshop operator account.</p>
         <form id="bootstrap-form">
           <label>
             Display name
@@ -53,167 +49,18 @@
       </section>
     </main>
 
-    <main id="app-view" class="layout hidden">
-      <section class="dashboard-panel" aria-labelledby="dashboard-title">
-        <div class="dashboard-head">
-          <div>
-            <h2 id="dashboard-title">Queue dashboard</h2>
-            <p class="muted">Current print work, blockers, and the next requests to pull.</p>
-          </div>
-          <div class="dashboard-actions">
-            <a class="button-link" href="#item-form">Add print</a>
-            <a class="button-link secondary-link" href="#queue">View queue</a>
-            <a id="admin-users-link" class="button-link secondary-link hidden" href="#admin-panel">Admin</a>
-          </div>
-        </div>
-        <div id="dashboard" class="dashboard"></div>
-      </section>
-
-      <section class="panel create-panel">
-        <h2>Add print</h2>
-        <form id="item-form">
-          <label>
-            Title
-            <input name="title" required placeholder="Gridfinity bins">
-          </label>
-          <label>
-            Links
-            <textarea name="links" rows="3" placeholder="https://www.printables.com/..."></textarea>
-          </label>
-          <div class="grid">
-            <label>
-              Status
-              <select name="status">
-                <option value="backlog">Backlog</option>
-                <option value="queued" selected>Queued</option>
-                <option value="printing">Printing</option>
-                <option value="blocked">Blocked</option>
-              </select>
-            </label>
-            <label>
-              Priority
-              <select name="priority">
-                <option value="normal" selected>Normal</option>
-                <option value="low">Low</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </label>
-          </div>
-          <div class="grid">
-            <label>
-              Requested by
-              <input name="requested_by" placeholder="Zach">
-            </label>
-            <label>
-              Owner
-              <input name="owner" placeholder="Shop">
-            </label>
-          </div>
-          <div class="grid">
-            <label>
-              Material
-              <input name="material" placeholder="PLA">
-            </label>
-            <label>
-              Color
-              <input name="color" placeholder="Black">
-            </label>
-          </div>
-          <div class="grid">
-            <label>
-              Quantity
-              <input name="quantity" type="number" min="1" value="1">
-            </label>
-            <label>
-              Printing by
-              <input name="printing_by" placeholder="A1 Mini">
-            </label>
-          </div>
-          <div class="grid">
-            <label>
-              Due date
-              <input name="due_at" type="date">
-            </label>
-            <label>
-              Estimate
-              <input name="estimated_minutes" type="number" min="1" placeholder="90">
-            </label>
-          </div>
-          <label>
-            Files
-            <input name="files" type="file" multiple accept=".stl,.3mf,.gcode,.step,.stp,.obj,.zip,.png,.jpg,.jpeg,.webp">
-          </label>
-          <label>
-            Notes
-            <textarea name="description" rows="3"></textarea>
-          </label>
-          <button type="submit">Add to queue</button>
-          <p id="form-status" class="form-status"></p>
-        </form>
-      </section>
-
-      <section class="panel queue-panel">
-        <div class="section-head">
-          <h2>Queue</h2>
-          <div class="toolbar">
-            <select id="status-filter" aria-label="Filter by status">
-              <option value="">All statuses</option>
-              <option value="backlog">Backlog</option>
-              <option value="queued">Queued</option>
-              <option value="printing">Printing</option>
-              <option value="blocked">Blocked</option>
-              <option value="done">Done</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-            <button id="refresh" class="secondary" type="button">Refresh</button>
-          </div>
-        </div>
-        <div id="queue" class="queue"></div>
-      </section>
-
-      <section class="panel detail-panel">
-        <div class="section-head">
-          <h2>Detail</h2>
-          <button id="close-detail" class="secondary hidden" type="button">Close</button>
-        </div>
-        <div id="item-detail" class="detail-empty">
-          <p class="muted">Select a queue item.</p>
-        </div>
-      </section>
-
-      <section class="panel admin-panel hidden" id="admin-panel">
-        <h2>Admin</h2>
-
-        <section class="admin-section">
-          <h3>Printers</h3>
-          <form id="printer-form" class="inline-form">
-            <input name="name" required placeholder="Prusa MK4">
-            <input name="location" placeholder="Garage">
-            <button type="submit">Add</button>
-          </form>
-          <div id="printers" class="printers"></div>
-        </section>
-
-        <section class="admin-section">
-          <h3>Users</h3>
-          <form id="user-form" class="user-create-form">
-            <input name="display_name" required placeholder="Display name">
-            <input name="email" type="email" required placeholder="email@example.com">
-            <input name="password" type="password" required minlength="12" placeholder="Temporary password">
-            <select name="role">
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
-            <label class="checkbox-label">
-              <input name="active" type="checkbox" checked>
-              Active
-            </label>
-            <button type="submit">Add user</button>
-          </form>
-          <p id="user-status" class="form-status"></p>
-          <div id="users" class="users"></div>
-        </section>
+    <main id="app-view" class="app-shell hidden">
+      <aside class="sidebar">
+        <a class="sidebar-brand" href="#dashboard" aria-label="3do dashboard">
+          <span class="brand-mark">3do</span>
+          <span>Print control</span>
+        </a>
+        <nav id="route-nav" class="route-nav" aria-label="Primary"></nav>
+        <div id="session-area" class="session-area"></div>
+      </aside>
+      <section class="workspace">
+        <header id="route-header" class="route-header"></header>
+        <section id="route-view" class="route-view" aria-live="polite"></section>
       </section>
     </main>
 

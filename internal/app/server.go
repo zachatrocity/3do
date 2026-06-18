@@ -316,7 +316,7 @@ func (s *Server) createQueueItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.addLinks(r, item.ID, input.Links, true); err != nil {
+	if _, err := s.addLinks(r, item.ID, input.Links, true); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -356,7 +356,8 @@ func (s *Server) createQueueItemMultipart(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.addLinks(r, item.ID, input.Links, false); err != nil {
+	addedLinks, err := s.addLinks(r, item.ID, input.Links, false)
+	if err != nil {
 		s.cleanupQueueItem(r, item.ID)
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -372,7 +373,9 @@ func (s *Server) createQueueItemMultipart(w http.ResponseWriter, r *http.Request
 			}
 		}
 	}
-	s.fetchLinkThumbnails(r, item.ID)
+	for _, link := range addedLinks {
+		s.fetchThumbnail(r, link)
+	}
 
 	items, _ := s.store.ListQueueItems(r.Context())
 	for _, current := range items {
@@ -384,27 +387,19 @@ func (s *Server) createQueueItemMultipart(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusCreated, item)
 }
 
-func (s *Server) addLinks(r *http.Request, itemID int64, links []string, fetchThumbnails bool) error {
+func (s *Server) addLinks(r *http.Request, itemID int64, links []string, fetchThumbnails bool) ([]store.ItemLink, error) {
+	var addedLinks []store.ItemLink
 	for _, link := range links {
 		added, err := s.store.AddLink(r.Context(), itemID, link)
 		if err != nil {
-			return err
+			return addedLinks, err
 		}
+		addedLinks = append(addedLinks, added)
 		if fetchThumbnails {
 			s.fetchThumbnail(r, added)
 		}
 	}
-	return nil
-}
-
-func (s *Server) fetchLinkThumbnails(r *http.Request, itemID int64) {
-	links, err := s.store.ListLinks(r.Context(), itemID)
-	if err != nil {
-		return
-	}
-	for _, link := range links {
-		s.fetchThumbnail(r, link)
-	}
+	return addedLinks, nil
 }
 
 func (s *Server) fetchThumbnail(r *http.Request, link store.ItemLink) {
