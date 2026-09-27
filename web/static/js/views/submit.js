@@ -1,5 +1,6 @@
 import { apiClient } from "../api.js";
 import { refreshData } from "../data.js";
+import { routeTo } from "../router.js";
 
 export function renderSubmit(root) {
   root.innerHTML = `
@@ -15,6 +16,15 @@ export function renderSubmit(root) {
             <textarea name="links" rows="3" placeholder="https://www.printables.com/..."></textarea>
           </label>
         </div>
+        <label>
+          Files
+          <input name="files" type="file" multiple accept=".stl,.3mf,.gcode,.step,.stp,.obj,.zip,.png,.jpg,.jpeg,.webp">
+        </label>
+        <label>
+          Notes
+          <textarea name="description" rows="4"></textarea>
+        </label>
+        <details class="optional-fields"><summary>Print options — material, quantity, scheduling</summary>
         <div class="form-grid">
           <label>Status<select name="status">
             <option value="backlog">Backlog</option>
@@ -37,16 +47,9 @@ export function renderSubmit(root) {
           <label>Due date<input name="due_at" type="date"></label>
           <label>Estimate<input name="estimated_minutes" type="number" min="1" placeholder="90"></label>
         </div>
-        <label>
-          Files
-          <input name="files" type="file" multiple accept=".stl,.3mf,.gcode,.step,.stp,.obj,.zip,.png,.jpg,.jpeg,.webp">
-        </label>
-        <label>
-          Notes
-          <textarea name="description" rows="4"></textarea>
-        </label>
+        </details>
         <button type="submit">Add to queue</button>
-        <p id="form-status" class="form-status"></p>
+        <p id="form-status" class="form-status" role="status"></p>
       </form>
     </section>
   `;
@@ -55,14 +58,17 @@ export function renderSubmit(root) {
     event.preventDefault();
     const form = event.currentTarget;
     const status = root.querySelector("#form-status");
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
     status.textContent = "Saving print request...";
     try {
-      await apiClient.createQueueItem(new FormData(form));
+      const item = await apiClient.createQueueItem(new FormData(form));
       form.reset();
-      status.textContent = "Added to queue. Thumbnail discovery will show status on the queue cards.";
-      await refreshData();
+      status.textContent = "Print added.";
+      try { await refreshData(); } catch { /* Detail can load independently. */ }
+      if (form.isConnected) routeTo("queue", { view: "board", item: item.id }, { replace: true });
     } catch (error) {
       status.textContent = error.message;
-    }
+    } finally { button.disabled = false; }
   });
 }

@@ -6,3 +6,7 @@
 *.db-*
 *.sqlite
 *.sqlite-*
+
+node_modules/
+test-results/
+playwright-report/

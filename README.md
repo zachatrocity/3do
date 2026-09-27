@@ -241,3 +241,19 @@ an active admin session.
 2. Add stronger validation and duplicate detection using stored checksums.
 3. Add migrations tests around upgrade compatibility.
 4. Add optional metadata extractors/thumbnails for model files.
+
+## Frontend UX checks
+
+The app uses one Queue with Board/List views and URL-backed print details. Browser
+Back/Forward, deep links and reload preserve the selected print and queue filter.
+See [the UX audit](docs/ux-audit.md) for findings and follow-ups.
+
+```sh
+npm ci
+npm test
+npx playwright install chromium
+npm run test:ui
+```
+
+Browser tests use fixture API responses and do not require a running Go server or
+production credentials. Existing Go and Docker checks cover the backend separately.
