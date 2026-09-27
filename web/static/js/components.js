@@ -23,7 +23,7 @@ export function renderMiniQueueItem(item) {
   `;
 }
 
-export function renderQueueCard(item, selectedItemId) {
+export function renderQueueCard(item, selectedItemId, href) {
   return `
     <article class="queue-card${selectedItemId === item.id ? " selected" : ""}" data-card-id="${escapeAttr(item.id)}">
       ${renderItemThumbnail(item)}
@@ -46,8 +46,7 @@ export function renderQueueCard(item, selectedItemId) {
         ${meta("Qty", item.quantity)}
       </div>
       <div class="card-footer">
-        ${renderThumbnailStatus(item)}
-        <button class="secondary view-detail" type="button" data-item-id="${escapeAttr(item.id)}">Inspect</button>
+        <a class="button-link secondary" href="${escapeAttr(href)}">View print</a>
       </div>
     </article>
   `;

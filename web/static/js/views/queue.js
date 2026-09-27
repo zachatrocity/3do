@@ -1,83 +1,61 @@
 import { apiClient } from "../api.js";
 import { refreshData } from "../data.js";
+import { renderDashboard } from "./dashboard.js";
+import { routeTo, renderCurrentRoute } from "../router.js";
+import { routeHref, statuses } from "../navigation.js";
 import { state } from "../state.js";
 import { escapeAttr, escapeHTML, formatDateInput } from "../utils.js";
 import { renderFiles, renderLinks, renderNotes, renderQueueCard, renderStatusEvents } from "../components.js";
 import { renderItemThumbnail } from "../thumbnails.js";
 
 export function renderQueue(root, params = {}) {
-  if (params.item) state.selectedItemId = Number(params.item);
+  if (params.item) {
+    root.innerHTML = `<section class="detail-panel item-page"><div id="item-detail" class="detail"></div></section>`;
+    loadItemDetail(params.item, root.querySelector("#item-detail"));
+    return;
+  }
+  const view = params.view || "board";
+  const items = params.status ? state.queueItems.filter(item => item.status === params.status) : state.queueItems;
   root.innerHTML = `
-    <section class="queue-route">
-      <div class="queue-toolbar">
-        <select id="status-filter" aria-label="Filter by status">
-          <option value="">All statuses</option>
-          <option value="backlog">Backlog</option>
-          <option value="queued">Queued</option>
-          <option value="printing">Printing</option>
-          <option value="blocked">Blocked</option>
-          <option value="done">Done</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-        <button id="refresh-queue" class="secondary" type="button">Refresh</button>
-      </div>
-      <div id="queue-list" class="queue-list"></div>
-      <aside class="detail-panel">
-        <div class="section-head">
-          <h2>Inspection</h2>
-          <button id="close-detail" class="secondary ${state.selectedItemId ? "" : "hidden"}" type="button">Close</button>
-        </div>
-        <div id="item-detail" class="detail-empty">
-          <p class="muted">Select a queue item.</p>
-        </div>
-      </aside>
+    <section class="queue-toolbar" aria-label="Queue controls">
+      <nav class="view-switch" aria-label="Queue view">
+        ${["board", "list"].map(mode => `<a href="${escapeAttr(routeHref("queue", { ...params, view: mode }))}" ${view === mode ? 'aria-current="page"' : ""}>${mode === "board" ? "Board" : "List"}</a>`).join("")}
+      </nav>
+      <select id="status-filter" aria-label="Filter by status">
+        <option value="">All statuses</option>
+        ${statuses.map(status => `<option value="${status}" ${params.status === status ? "selected" : ""}>${status[0].toUpperCase() + status.slice(1)}</option>`).join("")}
+      </select>
+      <button id="refresh-queue" class="secondary" type="button">Refresh</button>
+      <p id="queue-status" class="form-status" role="status"></p>
     </section>
-  `;
-
-  const filter = root.querySelector("#status-filter");
-  const list = root.querySelector("#queue-list");
-  const detail = root.querySelector("#item-detail");
-  const close = root.querySelector("#close-detail");
-
-  const paintList = () => {
-    const items = filter.value ? state.queueItems.filter((item) => item.status === filter.value) : state.queueItems;
-    list.innerHTML = items.length ? items.map((item) => renderQueueCard(item, state.selectedItemId)).join("") : `<p class="muted">No prints match this view.</p>`;
-    list.querySelectorAll("[data-item-id]").forEach((button) => {
-      button.addEventListener("click", () => loadItemDetail(button.dataset.itemId, detail, close, paintList));
-    });
-  };
-
-  filter.addEventListener("change", paintList);
-  root.querySelector("#refresh-queue").addEventListener("click", async () => {
-    await refreshData();
-    paintList();
-    if (state.selectedItemId) await loadItemDetail(state.selectedItemId, detail, close, paintList);
+    <div id="queue-content"></div>`;
+  const content = root.querySelector("#queue-content");
+  if (view === "board") renderDashboard(content, params);
+  else content.innerHTML = `<div class="queue-list">${items.length ? items.map(item => renderQueueCard(item, null, routeHref("queue", { ...params, item: item.id }))).join("") : '<p class="muted">No prints match this view.</p>'}</div>`;
+  root.querySelector("#status-filter").addEventListener("change", event => routeTo("queue", { ...params, status: event.target.value }));
+  root.querySelector("#refresh-queue").addEventListener("click", async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await refreshData();
+      if (button.isConnected) renderCurrentRoute();
+    } catch (error) {
+      if (button.isConnected) root.querySelector("#queue-status").textContent = error.message;
+    } finally { button.disabled = false; }
   });
-  close.addEventListener("click", () => {
-    state.selectedItemId = null;
-    close.classList.add("hidden");
-    detail.className = "detail-empty";
-    detail.innerHTML = `<p class="muted">Select a queue item.</p>`;
-    paintList();
-  });
-
-  paintList();
-  if (state.selectedItemId) loadItemDetail(state.selectedItemId, detail, close, paintList);
 }
 
-async function loadItemDetail(id, detail, close, paintList) {
-  state.selectedItemId = Number(id);
-  close.classList.remove("hidden");
-  detail.className = "detail";
-  detail.innerHTML = `<p class="muted">Loading item details...</p>`;
-  paintList();
+async function loadItemDetail(id, detail, message = "") {
+  detail.innerHTML = `<p class="muted">Loading print details...</p>`;
   try {
-    const item = await apiClient.queueItem(state.selectedItemId);
+    const item = await apiClient.queueItem(id);
+    if (!detail.isConnected) return;
     detail.innerHTML = renderDetail(item);
-    detail.querySelector("#detail-form").addEventListener("submit", saveItemDetail);
-    detail.querySelector("#note-form").addEventListener("submit", addItemNote);
+    detail.querySelector("#detail-status").textContent = message;
+    detail.querySelector("#detail-form").addEventListener("submit", event => saveItemDetail(event, id, detail));
+    detail.querySelector("#note-form").addEventListener("submit", event => addItemNote(event, id, detail));
   } catch (error) {
-    detail.innerHTML = `<p class="muted">${escapeHTML(error.message)}</p>`;
+    if (detail.isConnected) detail.innerHTML = `<p role="alert">${escapeHTML(error.message)}</p>`;
   }
 }
 
@@ -107,14 +85,14 @@ function renderDetail(item) {
       </div>
       <label>Due date<input name="due_at" type="date" value="${escapeAttr(formatDateInput(item.due_at))}"></label>
       <label>Status note<textarea name="status_note" rows="2" placeholder="Brief reason for the status change"></textarea></label>
-      <button type="submit">Update item</button>
-      <p id="detail-status" class="form-status"></p>
+      <button type="submit">Save changes</button>
+      <p id="detail-status" class="form-status" role="status"></p>
     </form>
     <section class="subsection">
       <h3>Notes</h3>
       <form id="note-form">
-        <textarea name="body" rows="3" required placeholder="Add a comment..."></textarea>
-        <button type="submit">Post note</button>
+        <label>New note<textarea name="body" rows="3" required placeholder="Add a comment..."></textarea></label>
+        <button type="submit">Post note</button><p class="form-status" role="status"></p>
       </form>
       <div class="timeline">${renderNotes(item.notes || [])}</div>
     </section>
@@ -131,28 +109,33 @@ function selectField(name, label, value, options) {
   )).join("")}</select></label>`;
 }
 
-async function saveItemDetail(event) {
+async function saveItemDetail(event, id, detail) {
   event.preventDefault();
   const form = event.currentTarget;
   const statusEl = form.querySelector("#detail-status");
+  const button = form.querySelector("button[type=submit]");
   const payload = Object.fromEntries(new FormData(form).entries());
   payload.quantity = Number(payload.quantity || 1);
+  button.disabled = true;
   statusEl.textContent = "Saving...";
   try {
-    await apiClient.updateQueueItem(state.selectedItemId, payload);
+    await apiClient.updateQueueItem(id, payload);
     statusEl.textContent = "Saved.";
     await refreshData();
-    renderQueue(document.querySelector("#route-view"), { item: state.selectedItemId });
-  } catch (error) {
-    statusEl.textContent = error.message;
-  }
+    if (detail.isConnected) await loadItemDetail(id, detail, "Saved.");
+  } catch (error) { statusEl.textContent = error.message; }
+  finally { button.disabled = false; }
 }
 
-async function addItemNote(event) {
+async function addItemNote(event, id, detail) {
   event.preventDefault();
   const form = event.currentTarget;
-  const payload = Object.fromEntries(new FormData(form).entries());
-  await apiClient.addQueueItemNote(state.selectedItemId, payload);
-  form.reset();
-  renderQueue(document.querySelector("#route-view"), { item: state.selectedItemId });
+  const button = form.querySelector("button[type=submit]");
+  const status = form.querySelector(".form-status");
+  button.disabled = true;
+  try {
+    await apiClient.addQueueItemNote(id, Object.fromEntries(new FormData(form).entries()));
+    if (detail.isConnected) await loadItemDetail(id, detail, "Note added.");
+  } catch (error) { status.textContent = error.message; }
+  finally { button.disabled = false; }
 }

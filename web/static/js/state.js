@@ -3,7 +3,6 @@ export const state = {
   queueItems: [],
   printers: [],
   users: [],
-  selectedItemId: null,
 };
 
 export function isAdmin() {
@@ -19,5 +18,4 @@ export function clearSession() {
   state.queueItems = [];
   state.printers = [];
   state.users = [];
-  state.selectedItemId = null;
 }

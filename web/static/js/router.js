@@ -1,117 +1,60 @@
-import { isAdmin } from "./state.js";
-import { renderDashboard } from "./views/dashboard.js";
+import { isAdmin, state } from "./state.js";
 import { renderSubmit } from "./views/submit.js";
 import { renderQueue } from "./views/queue.js";
 import { renderPrinters } from "./views/printers.js";
 import { renderUsers } from "./views/users.js";
+import { parseRoute, routeHref, queueParent } from "./navigation.js";
+import { escapeAttr } from "./utils.js";
 
 const routes = {
-  dashboard: {
-    label: "Dashboard",
-    eyebrow: "Queue telemetry",
-    title: "Dashboard",
-    description: "Live queue load, blockers, printer activity, and recent completions.",
-    render: renderDashboard,
-  },
-  submit: {
-    label: "Submit print",
-    eyebrow: "New request",
-    title: "Submit print",
-    description: "Capture source links, files, materials, owner, and print timing.",
-    render: renderSubmit,
-  },
-  "admin-queue": {
-    label: "Admin queue",
-    eyebrow: "Operator board",
-    title: "Admin queue",
-    description: "Inspect jobs, move status, record notes, and review thumbnail health.",
-    admin: true,
-    render: renderQueue,
-  },
-  "admin-printers": {
-    label: "Admin printers",
-    eyebrow: "Machine rail",
-    title: "Admin printers",
-    description: "Track printer readiness, location, capabilities, and notes.",
-    admin: true,
-    render: renderPrinters,
-  },
-  "admin-users": {
-    label: "Admin users",
-    eyebrow: "Access control",
-    title: "Admin users",
-    description: "Create operators and manage account status.",
-    admin: true,
-    render: renderUsers,
-  },
+  queue: { label: "Queue", description: "Track prints from request to completion.", render: renderQueue },
+  submit: { label: "New print", description: "Add a model link or upload files to get started.", render: renderSubmit },
+  "admin-printers": { label: "Printers", description: "Manage workshop printers.", admin: true, render: renderPrinters },
+  "admin-users": { label: "People", description: "Manage accounts and access.", admin: true, render: renderUsers },
 };
-
-let viewRoot;
-let headerRoot;
-let navRoot;
+let viewRoot, headerRoot, navRoot;
 
 export function setupRouter({ view, header, nav }) {
-  viewRoot = view;
-  headerRoot = header;
-  navRoot = nav;
+  viewRoot = view; headerRoot = header; navRoot = nav;
   window.addEventListener("hashchange", renderCurrentRoute);
 }
 
 export function renderCurrentRoute() {
-  const { name, params } = parseHash();
-  const route = routeFor(name);
-  paintNav(route);
-  paintHeader(route);
-  if (route.admin && !isAdmin()) {
-    viewRoot.innerHTML = `<section class="empty-state"><h2>Admin access required</h2><p class="muted">This route is only available to admin users.</p></section>`;
+  if (!state.currentUser) return;
+  const { name, params } = parseRoute(window.location.hash);
+  const route = routes[name];
+  navRoot.innerHTML = Object.entries(routes).filter(([, r]) => !r.admin || isAdmin()).map(([key, r]) => `
+    ${key === "admin-printers" ? '<span class="nav-group-label">Settings</span>' : ""}
+    <a ${key === name ? 'class="active" aria-current="page"' : ""} href="#${key}">${r.label}</a>`).join("");
+  if (!route) {
+    document.title = "Page not found · 3do";
+    headerRoot.innerHTML = `<h1 tabindex="-1">Page not found</h1>`;
+    viewRoot.innerHTML = `<section class="empty-state"><p>This page doesn't exist.</p><a href="#queue">Return to queue</a></section>`;
+    headerRoot.querySelector("h1").focus({ preventScroll: true });
     return;
   }
-  route.render(viewRoot, params);
-}
-
-export function routeTo(name, params = {}) {
-  const search = new URLSearchParams(params).toString();
-  window.location.hash = search ? `${name}?${search}` : name;
-}
-
-export function ensureDefaultRoute() {
-  if (!window.location.hash || window.location.hash === "#") {
-    routeTo("dashboard");
+  const canonical = routeHref(name, params);
+  if (window.location.hash !== canonical) history.replaceState(null, "", canonical);
+  const detail = name === "queue" && params.item;
+  const title = detail ? "Print details" : route.label;
+  document.title = `${title} · 3do`;
+  headerRoot.innerHTML = `<div>
+    ${detail ? `<a class="back-link" href="${escapeAttr(queueParent(params))}">← Back to queue</a>` : ""}
+    <h1 tabindex="-1">${title}</h1>
+    ${detail ? "" : `<p>${route.description}</p>`}
+  </div>`;
+  if (route.admin && !isAdmin()) {
+    viewRoot.innerHTML = `<section class="empty-state"><h2>Admin access required</h2><a href="#queue">Return to queue</a></section>`;
   } else {
-    renderCurrentRoute();
+    route.render(viewRoot, params);
   }
+  headerRoot.querySelector("h1").focus({ preventScroll: true });
+  window.scrollTo(0, 0);
 }
 
-function parseHash() {
-  const raw = window.location.hash.replace(/^#/, "") || "dashboard";
-  const [name, query = ""] = raw.split("?");
-  return {
-    name,
-    params: Object.fromEntries(new URLSearchParams(query).entries()),
-  };
+export function routeTo(name, params = {}, { replace = false } = {}) {
+  const hash = routeHref(name, params);
+  if (replace) { history.replaceState(null, "", hash); renderCurrentRoute(); }
+  else if (window.location.hash !== hash) window.location.hash = hash;
 }
-
-function routeFor(name) {
-  if (routes[name]) return routes[name];
-  return routes.dashboard;
-}
-
-function paintHeader(route) {
-  headerRoot.innerHTML = `
-    <div>
-      <span>${route.eyebrow}</span>
-      <h1>${route.title}</h1>
-      <p>${route.description}</p>
-    </div>
-  `;
-}
-
-function paintNav(activeRoute) {
-  navRoot.innerHTML = Object.entries(routes)
-    .filter(([, route]) => !route.admin || isAdmin())
-    .map(([name, route]) => `
-      <a class="${route === activeRoute ? "active" : ""}" href="#${name}">
-        <span>${route.label}</span>
-      </a>
-    `).join("");
-}
+export function ensureDefaultRoute() { renderCurrentRoute(); }

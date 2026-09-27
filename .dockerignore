@@ -5,3 +5,8 @@ data
 bin
 tmp
 *.tgz
+
+node_modules
+test-results
+playwright-report
+web/tests
